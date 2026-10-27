@@ -49,9 +49,10 @@ export interface ChecklistDetailViewProps {
   onArchive: () => void;
   onDelete: () => void;
   accentColor?: string;
+  paused?: boolean;
 }
 
-export const ChecklistDetailView: React.FC<ChecklistDetailViewProps> = ({
+export const ChecklistDetailView: React.FC<ChecklistDetailViewProps> = React.memo(({
   item,
   items,
   effectiveOccurrenceDate,
@@ -73,6 +74,7 @@ export const ChecklistDetailView: React.FC<ChecklistDetailViewProps> = ({
   onArchive,
   onDelete,
   accentColor,
+  paused = false,
 }) => {
   const activeAccentColor = "#E07A5F";
 
@@ -95,6 +97,7 @@ export const ChecklistDetailView: React.FC<ChecklistDetailViewProps> = ({
         scheduleDisplay={scheduleDisplay}
         isLight={isLight}
         colors={colors}
+        paused={paused}
       />
 
       {/* Progress Section with Slider Thumb Pill */}
@@ -337,6 +340,8 @@ export const ChecklistDetailView: React.FC<ChecklistDetailViewProps> = ({
           style={styles.quickAddWrap}
           intensity={50}
           blurRadius={20}
+          interactive={false}
+          paused={paused}
         >
           <TextInput
             style={[
@@ -384,7 +389,6 @@ export const ChecklistDetailView: React.FC<ChecklistDetailViewProps> = ({
       {/* Actions */}
       <View style={{ gap: Spacing.sm, marginTop: Spacing.md }}>
         <DetailActions
-          glass
           actions={[
             {
               key: "duplicate",
@@ -395,7 +399,6 @@ export const ChecklistDetailView: React.FC<ChecklistDetailViewProps> = ({
           ]}
         />
         <DetailActions
-          glass
           actions={[
             {
               key: "archive",
@@ -439,7 +442,7 @@ export const ChecklistDetailView: React.FC<ChecklistDetailViewProps> = ({
       </View>
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   detailTitle: {

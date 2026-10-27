@@ -14,9 +14,10 @@ export interface ChecklistDetailHeaderProps {
   onBack: () => void;
   onSave: () => void;
   onEdit: () => void;
+  paused?: boolean;
 }
 
-export const ChecklistDetailHeader: React.FC<ChecklistDetailHeaderProps> = ({
+export const ChecklistDetailHeader: React.FC<ChecklistDetailHeaderProps> = React.memo(({
   isEditing,
   hasChanges,
   isLight,
@@ -24,6 +25,7 @@ export const ChecklistDetailHeader: React.FC<ChecklistDetailHeaderProps> = ({
   onBack,
   onSave,
   onEdit,
+  paused = false,
 }) => {
   return (
     <View style={styles.topNavRow}>
@@ -40,6 +42,8 @@ export const ChecklistDetailHeader: React.FC<ChecklistDetailHeaderProps> = ({
           style={styles.circleNavBtn}
           blurRadius={20}
           shadow={false}
+          interactive={false}
+          paused={paused}
         >
           <Feather
             name="arrow-left"
@@ -100,6 +104,8 @@ export const ChecklistDetailHeader: React.FC<ChecklistDetailHeaderProps> = ({
             style={styles.circleNavBtn}
             blurRadius={20}
             shadow={false}
+            interactive={false}
+            paused={paused}
           >
             <Feather
               name="edit-2"
@@ -111,7 +117,7 @@ export const ChecklistDetailHeader: React.FC<ChecklistDetailHeaderProps> = ({
       )}
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   topNavRow: {

@@ -47,6 +47,7 @@ import { getChecklistColor } from "@/features/checklists/utils/checklist-colors"
 
 export interface ChecklistDetailContentProps {
   checklistId: string;
+  workspaceId?: string;
   /** Whether the screen should open directly in edit mode (route `edit=true`). */
   initialEdit?: boolean;
   /** Occurrence date if opened from an occurrence (e.g. from Calendar). */
@@ -60,6 +61,7 @@ export interface ChecklistDetailContentProps {
  */
 export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
   checklistId,
+  workspaceId,
   initialEdit,
   occurrenceDate,
   onBack,
@@ -74,6 +76,14 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
   const [item, setItem] = useState<Checklist | null>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [resourcesList, setResourcesList] = useState<Resource[]>([]);
+  const [isTransitionReady, setIsTransitionReady] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsTransitionReady(true);
+    }, 280);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Editor modal sub-states
   const [workspacePickerVisible, setWorkspacePickerVisible] = useState(false);
@@ -315,7 +325,50 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
     if (!checklistId) return;
     setLoading(true);
     try {
-      const loadedFolders = await WorkspaceRepository.getWorkspaces();
+      // 1. FAST PATH: If workspaceId is provided, query target workspace immediately
+      let foundChecklist: Checklist | null = null;
+      if (workspaceId) {
+        foundChecklist = await ChecklistRepository.getChecklist(
+          checklistId,
+          workspaceId,
+        );
+      }
+
+      // Fetch workspaces concurrently
+      const foldersPromise = WorkspaceRepository.getWorkspaces();
+
+      // If not resolved via direct workspaceId, search candidate workspaces in parallel
+      if (!foundChecklist) {
+        const loadedFolders = await foldersPromise;
+        const candidateIds = Array.from(
+          new Set([
+            workspaceId || INBOX_WORKSPACE_ID,
+            INBOX_WORKSPACE_ID,
+            MY_PEBBLES_WORKSPACE_ID,
+            ...loadedFolders.map((f) => f.id),
+          ]),
+        );
+        const checklistResults = await Promise.all(
+          candidateIds.map((fId) =>
+            ChecklistRepository.getChecklist(checklistId, fId),
+          ),
+        );
+        foundChecklist = checklistResults.find(Boolean) || null;
+      }
+
+      if (foundChecklist) {
+        setItem(foundChecklist);
+        reset(foundChecklist);
+        // Immediately unblock the UI so user doesn't wait on secondary data
+        setLoading(false);
+      } else {
+        Alert.alert("Error", "Checklist not found.");
+        onBack();
+        return;
+      }
+
+      // 2. Set workspaces state
+      const loadedFolders = await foldersPromise;
       const loadedWorkspaces: Workspace[] = loadedFolders.map((folder) => ({
         id: folder.id,
         name: folder.name,
@@ -331,6 +384,7 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
       }));
       setWorkspaces(loadedWorkspaces);
 
+      // 3. Load resources for the picker concurrently in the background
       const folderIds = Array.from(
         new Set([
           INBOX_WORKSPACE_ID,
@@ -338,41 +392,18 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
           ...loadedFolders.map((f) => f.id),
         ]),
       );
-
-      const allLoadedResources: Resource[] = [];
-      for (const fId of folderIds) {
-        const resMap = await ResourceRepository.getResources(fId);
-        Object.values(resMap).forEach((r) => {
-          allLoadedResources.push(r);
-        });
-      }
+      const resMaps = await Promise.all(
+        folderIds.map((fId) => ResourceRepository.getResources(fId)),
+      );
+      const allLoadedResources: Resource[] = resMaps.flatMap((resMap) =>
+        Object.values(resMap),
+      );
       setResourcesList(allLoadedResources);
-
-      let foundChecklist: Checklist | undefined;
-      for (const fId of folderIds) {
-        const checklist = await ChecklistRepository.getChecklist(
-          checklistId,
-          fId,
-        );
-        if (checklist) {
-          foundChecklist = checklist;
-          break;
-        }
-      }
-
-      if (foundChecklist) {
-        setItem(foundChecklist);
-        reset(foundChecklist);
-      } else {
-        Alert.alert("Error", "Checklist not found.");
-        onBack();
-      }
     } catch (e) {
       console.warn("Failed to load checklist details", e);
-    } finally {
       setLoading(false);
     }
-  }, [checklistId, onBack, reset]);
+  }, [checklistId, workspaceId, onBack, reset]);
 
   useEffect(() => {
     loadData();
@@ -731,6 +762,7 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
             onBack={handleBack}
             onSave={handleSave}
             onEdit={() => setIsEditing(true)}
+            paused={!isTransitionReady}
           />
         }
         contentContainerStyle={{ paddingBottom: 60 }}
@@ -758,6 +790,7 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
             onArchive={handleArchive}
             onDelete={handleDelete}
             accentColor={checklistColor}
+            paused={!isTransitionReady}
           />
         ) : (
           <ChecklistDetailForm

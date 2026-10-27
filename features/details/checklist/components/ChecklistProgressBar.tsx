@@ -11,7 +11,7 @@ export interface ChecklistProgressBarProps {
   accentColor?: string;
 }
 
-export const ChecklistProgressBar: React.FC<ChecklistProgressBarProps> = ({
+export const ChecklistProgressBar: React.FC<ChecklistProgressBarProps> = React.memo(({
   completedCount,
   totalCount,
   isLight,
@@ -78,7 +78,7 @@ export const ChecklistProgressBar: React.FC<ChecklistProgressBarProps> = ({
       </Text>
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   sectionWrap: {

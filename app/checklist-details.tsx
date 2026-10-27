@@ -22,6 +22,7 @@ export default function ChecklistDetailsScreen() {
   return (
     <ChecklistDetailContent
       checklistId={params.id || ""}
+      workspaceId={params.workspaceId}
       initialEdit={params.edit === "true"}
       occurrenceDate={params.date}
       onBack={() => router.back()}

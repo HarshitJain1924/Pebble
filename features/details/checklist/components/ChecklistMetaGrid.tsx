@@ -14,6 +14,7 @@ export interface ChecklistMetaGridProps {
   scheduleDisplay: string;
   isLight: boolean;
   colors: any;
+  paused?: boolean;
 }
 
 const formatDisplayDate = (dateVal?: string | number): string => {
@@ -51,12 +52,13 @@ const formatTimeDisplay = (timeStr?: string): string => {
   return `${displayHour}:${displayMin} ${period}`;
 };
 
-export const ChecklistMetaGrid: React.FC<ChecklistMetaGridProps> = ({
+export const ChecklistMetaGrid: React.FC<ChecklistMetaGridProps> = React.memo(({
   item,
   createdDate,
   scheduleDisplay,
   isLight,
   colors,
+  paused = false,
 }) => {
   const startDateStr = item.schedule?.date
     ? formatDisplayDate(item.schedule.date)
@@ -94,6 +96,8 @@ export const ChecklistMetaGrid: React.FC<ChecklistMetaGridProps> = ({
           style={styles.gridTile}
           intensity={50}
           blurRadius={20}
+          interactive={false}
+          paused={paused}
         >
           <Feather
             name="calendar"
@@ -129,6 +133,8 @@ export const ChecklistMetaGrid: React.FC<ChecklistMetaGridProps> = ({
           style={styles.gridTile}
           intensity={50}
           blurRadius={20}
+          interactive={false}
+          paused={paused}
         >
           <Feather
             name="calendar"
@@ -164,6 +170,8 @@ export const ChecklistMetaGrid: React.FC<ChecklistMetaGridProps> = ({
           style={styles.gridTile}
           intensity={50}
           blurRadius={20}
+          interactive={false}
+          paused={paused}
         >
           <Feather
             name="clock"
@@ -197,6 +205,8 @@ export const ChecklistMetaGrid: React.FC<ChecklistMetaGridProps> = ({
           style={styles.gridTile}
           intensity={50}
           blurRadius={20}
+          interactive={false}
+          paused={paused}
         >
           <Feather
             name={item.recurrence ? "repeat" : "clock"}
@@ -235,7 +245,7 @@ export const ChecklistMetaGrid: React.FC<ChecklistMetaGridProps> = ({
       <Text style={styles.srOnly}>{createdDate}</Text>
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   gridContainer: {
