@@ -84,37 +84,16 @@ export const ChecklistMetaGrid: React.FC<ChecklistMetaGridProps> = ({
         ? `${formatTimeDisplay(item.schedule.startTime)} +45m`
         : "None";
 
-  const glassTint = isLight
-    ? "rgba(0, 0, 0, 0.03)"
-    : "rgba(255, 255, 255, 0.045)";
-
-  const tileBorderStyles = isLight
-    ? {
-        borderTopColor: "rgba(0, 0, 0, 0.08)",
-        borderLeftColor: "rgba(0, 0, 0, 0.05)",
-        borderRightColor: "rgba(0, 0, 0, 0.05)",
-        borderBottomColor: "rgba(0, 0, 0, 0.12)",
-      }
-    : {
-        borderTopColor: "rgba(255, 255, 255, 0.18)",
-        borderLeftColor: "rgba(255, 255, 255, 0.08)",
-        borderRightColor: "rgba(255, 255, 255, 0.05)",
-        borderBottomColor: "rgba(0, 0, 0, 0.35)",
-      };
-
   return (
     <View style={styles.gridContainer}>
       <Text style={styles.srOnly}>SCHEDULE & TIMING</Text>
       <View style={styles.gridRow}>
         <LiquidGlassSurface
           borderRadius={16}
-          style={[styles.gridTile, tileBorderStyles]}
-          tintColor={glassTint}
+          isLight={isLight}
+          style={styles.gridTile}
           intensity={50}
           blurRadius={20}
-          dim={isLight ? 0 : 0.12}
-          thickness={0.85}
-          edgeReflectionStrength={0.4}
         >
           <Feather
             name="calendar"
@@ -146,13 +125,10 @@ export const ChecklistMetaGrid: React.FC<ChecklistMetaGridProps> = ({
 
         <LiquidGlassSurface
           borderRadius={16}
-          style={[styles.gridTile, tileBorderStyles]}
-          tintColor={glassTint}
+          isLight={isLight}
+          style={styles.gridTile}
           intensity={50}
           blurRadius={20}
-          dim={isLight ? 0 : 0.12}
-          thickness={0.85}
-          edgeReflectionStrength={0.4}
         >
           <Feather
             name="calendar"
@@ -184,13 +160,10 @@ export const ChecklistMetaGrid: React.FC<ChecklistMetaGridProps> = ({
       <View style={styles.gridRow}>
         <LiquidGlassSurface
           borderRadius={16}
-          style={[styles.gridTile, tileBorderStyles]}
-          tintColor={glassTint}
+          isLight={isLight}
+          style={styles.gridTile}
           intensity={50}
           blurRadius={20}
-          dim={isLight ? 0 : 0.12}
-          thickness={0.85}
-          edgeReflectionStrength={0.4}
         >
           <Feather
             name="clock"
@@ -220,13 +193,10 @@ export const ChecklistMetaGrid: React.FC<ChecklistMetaGridProps> = ({
 
         <LiquidGlassSurface
           borderRadius={16}
-          style={[styles.gridTile, tileBorderStyles]}
-          tintColor={glassTint}
+          isLight={isLight}
+          style={styles.gridTile}
           intensity={50}
           blurRadius={20}
-          dim={isLight ? 0 : 0.12}
-          thickness={0.85}
-          edgeReflectionStrength={0.4}
         >
           <Feather
             name={item.recurrence ? "repeat" : "clock"}
@@ -283,12 +253,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    borderWidth: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    elevation: 4,
   },
   tileCol: {
     flex: 1,

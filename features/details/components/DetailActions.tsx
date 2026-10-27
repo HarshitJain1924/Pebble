@@ -61,19 +61,8 @@ export const DetailActions: React.FC<DetailActionsProps> = ({ actions, style, gl
             >
               <LiquidGlassSurface
                 borderRadius={14}
-                style={[
-                  styles.button,
-                  {
-                    backgroundColor: "transparent",
-                    borderWidth: StyleSheet.hairlineWidth,
-                    borderColor: "rgba(255, 255, 255, 0.16)",
-                  },
-                ]}
-                tintColor={
-                  colorScheme === "light"
-                    ? "rgba(0,0,0,0.03)"
-                    : "rgba(255, 255, 255, 0.08)"
-                }
+                isLight={colorScheme === "light"}
+                style={styles.button}
                 intensity={50}
               >
                 {action.icon != null && <View style={styles.iconSlot}>{action.icon}</View>}

@@ -129,10 +129,18 @@ export default function TabLayout() {
             ),
           }}
         />
+        {/*
+         * Settings is a real, routable tab that is deliberately kept out of the
+         * custom tab bars (see `RADIAL_NAV_OPTIONS` and `useNavItems`).
+         *
+         * It must NOT be registered with `href: null`: expo-router 58 turns that
+         * into a hidden screen, and a hidden screen is no longer reachable —
+         * `/settings` resolved back to Today, so the Profile gear did nothing.
+         */}
         <Tabs.Screen
           name="settings"
           options={{
-            href: null,
+            title: "Settings",
           }}
         />
       </Tabs>
