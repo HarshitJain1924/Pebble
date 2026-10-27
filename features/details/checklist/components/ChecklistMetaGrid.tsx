@@ -52,6 +52,17 @@ const formatTimeDisplay = (timeStr?: string): string => {
   return `${displayHour}:${displayMin} ${period}`;
 };
 
+const computeEndTimeFromDuration = (startTime: string, durationMinutes: number): string => {
+  const [hStr, mStr] = startTime.split(":");
+  const h = parseInt(hStr, 10);
+  const m = parseInt(mStr || "0", 10);
+  if (isNaN(h)) return "";
+  const totalMin = h * 60 + m + durationMinutes;
+  const endH = Math.floor(totalMin / 60) % 24;
+  const endM = totalMin % 60;
+  return `${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`;
+};
+
 export const ChecklistMetaGrid: React.FC<ChecklistMetaGridProps> = React.memo(({
   item,
   createdDate,
@@ -66,36 +77,55 @@ export const ChecklistMetaGrid: React.FC<ChecklistMetaGridProps> = React.memo(({
       ? formatDisplayDate(item.createdAt)
       : "Today";
 
-  const endDateStr = item.schedule?.date
-    ? formatDisplayDate(item.schedule.date)
+  const endDateStr = item.recurrence?.endDate
+    ? formatDisplayDate(item.recurrence.endDate)
     : item.recurrence
       ? getRecurrenceLabel(item.recurrence) || "Recurring"
-      : "No deadline";
+      : item.schedule?.date
+        ? formatDisplayDate(item.schedule.date)
+        : "No deadline";
 
+  // Invariant: Schedule determines calendar placement; Reminder determines notification timing.
+  // Start Time strictly represents scheduled start time, not notification triggerAt.
   const startTimeStr = item.schedule?.startTime
     ? formatTimeDisplay(item.schedule.startTime)
-    : item.reminder?.triggerAt
-      ? formatReminderDisplay(item.reminder.triggerAt)
-      : "All Day";
+    : item.schedule?.date
+      ? "All Day"
+      : "None";
 
+  // End Time reflects true scheduled end time or duration; never fabricates a +45m offset.
   const endTimeStr = item.recurrence
     ? getRecurrenceLabel(item.recurrence) || "None"
     : item.schedule?.endTime
       ? formatTimeDisplay(item.schedule.endTime)
-      : item.schedule?.startTime
-        ? `${formatTimeDisplay(item.schedule.startTime)} +45m`
+      : item.schedule?.startTime && item.schedule?.durationMinutes
+        ? formatTimeDisplay(
+            computeEndTimeFromDuration(
+              item.schedule.startTime,
+              item.schedule.durationMinutes,
+            ),
+          )
         : "None";
+
+  // Reminder is notification-only; accessible to screen readers without polluting Start Time schedule tile.
+  const reminderDisplay =
+    item.reminder?.enabled && item.reminder.triggerAt
+      ? formatReminderDisplay(item.reminder.triggerAt, item.schedule?.date)
+      : null;
 
   return (
     <View style={styles.gridContainer}>
       <Text style={styles.srOnly}>SCHEDULE & TIMING</Text>
+      {reminderDisplay ? (
+        <Text style={styles.srOnly}>{reminderDisplay}</Text>
+      ) : null}
       <View style={styles.gridRow}>
         <LiquidGlassSurface
           borderRadius={16}
           isLight={isLight}
           style={styles.gridTile}
-          intensity={50}
-          blurRadius={20}
+          intensity={25}
+          blurRadius={10}
           interactive={false}
           paused={paused}
         >
@@ -131,8 +161,8 @@ export const ChecklistMetaGrid: React.FC<ChecklistMetaGridProps> = React.memo(({
           borderRadius={16}
           isLight={isLight}
           style={styles.gridTile}
-          intensity={50}
-          blurRadius={20}
+          intensity={25}
+          blurRadius={10}
           interactive={false}
           paused={paused}
         >
@@ -168,8 +198,8 @@ export const ChecklistMetaGrid: React.FC<ChecklistMetaGridProps> = React.memo(({
           borderRadius={16}
           isLight={isLight}
           style={styles.gridTile}
-          intensity={50}
-          blurRadius={20}
+          intensity={25}
+          blurRadius={10}
           interactive={false}
           paused={paused}
         >
@@ -203,8 +233,8 @@ export const ChecklistMetaGrid: React.FC<ChecklistMetaGridProps> = React.memo(({
           borderRadius={16}
           isLight={isLight}
           style={styles.gridTile}
-          intensity={50}
-          blurRadius={20}
+          intensity={25}
+          blurRadius={10}
           interactive={false}
           paused={paused}
         >

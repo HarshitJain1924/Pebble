@@ -57,64 +57,47 @@ export const ChecklistAmbientBackground: React.FC<ChecklistAmbientBackgroundProp
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
       <Svg width="100%" height="100%">
         <Defs>
-          {/* Subtle cool graphite/slate breath in upper-left for optical contrast */}
-          <RadialGradient
-            id={`${radialGlowId}_upper_left`}
-            cx="16%"
-            cy="18%"
-            rx="55%"
-            ry="28%"
-          >
-            <Stop offset="0%" stopColor="#2D2C38" stopOpacity={0.22} />
-            <Stop offset="55%" stopColor="#1B1B24" stopOpacity={0.08} />
-            <Stop offset="100%" stopColor="#0D0D10" stopOpacity={0} />
-          </RadialGradient>
-
-          {/* Luminous warm terracotta sunset ember flowing directly behind the metadata tiles */}
-          <RadialGradient
-            id={`${radialGlowId}_tile_glow`}
-            cx="68%"
-            cy="23%"
-            rx="65%"
-            ry="30%"
-          >
-            <Stop offset="0%" stopColor="#FF8259" stopOpacity={0.40} />
-            <Stop offset="35%" stopColor="#E6653E" stopOpacity={0.24} />
-            <Stop offset="70%" stopColor="#BF4A26" stopOpacity={0.07} />
-            <Stop offset="100%" stopColor="#0D0D10" stopOpacity={0} />
-          </RadialGradient>
-
-          {/* Luminous diagonal light flow sweeping behind tiles into the mid section */}
+          {/* Gentle diagonal atmospheric warmth from top-right toward mid-left */}
           <LinearGradient
             id={diagGradId}
-            x1="90%"
-            y1="8%"
+            x1="85%"
+            y1="10%"
             x2="15%"
-            y2="52%"
+            y2="55%"
           >
-            <Stop offset="0%" stopColor="#FF855D" stopOpacity={0.25} />
-            <Stop offset="32%" stopColor="#E6653E" stopOpacity={0.14} />
-            <Stop offset="68%" stopColor="#B84422" stopOpacity={0.04} />
-            <Stop offset="100%" stopColor="#0D0D10" stopOpacity={0} />
+            <Stop offset="0%" stopColor="#D96B47" stopOpacity={0.10} />
+            <Stop offset="35%" stopColor="#C25532" stopOpacity={0.04} />
+            <Stop offset="100%" stopColor="#0E0E10" stopOpacity={0} />
           </LinearGradient>
 
-          {/* Warm ambient radiance behind progress and description */}
+          {/* Controlled terracotta ambient glow directly behind the metadata tile grid */}
+          <RadialGradient
+            id={`${radialGlowId}_tile_glow`}
+            cx="66%"
+            cy="24%"
+            rx="52%"
+            ry="24%"
+          >
+            <Stop offset="0%" stopColor="#E0724E" stopOpacity={0.20} />
+            <Stop offset="45%" stopColor="#BF5534" stopOpacity={0.08} />
+            <Stop offset="100%" stopColor="#0E0E10" stopOpacity={0} />
+          </RadialGradient>
+
+          {/* Gentle, quiet ambient presence behind description and items */}
           <RadialGradient
             id={`${radialGlowId}_lower`}
-            cx="48%"
+            cx="45%"
             cy="54%"
-            rx="70%"
-            ry="34%"
+            rx="58%"
+            ry="26%"
           >
-            <Stop offset="0%" stopColor="#E6653E" stopOpacity={0.26} />
-            <Stop offset="42%" stopColor="#BF4A26" stopOpacity={0.13} />
-            <Stop offset="75%" stopColor="#7A2A14" stopOpacity={0.03} />
-            <Stop offset="100%" stopColor="#0D0D10" stopOpacity={0} />
+            <Stop offset="0%" stopColor="#D45E3B" stopOpacity={0.09} />
+            <Stop offset="50%" stopColor="#9C381E" stopOpacity={0.03} />
+            <Stop offset="100%" stopColor="#0E0E10" stopOpacity={0} />
           </RadialGradient>
         </Defs>
 
         {/* Ambient base lighting layers */}
-        <Rect width="100%" height="100%" fill={`url(#${radialGlowId}_upper_left)`} />
         <Rect width="100%" height="100%" fill={`url(#${diagGradId})`} />
         <Rect width="100%" height="100%" fill={`url(#${radialGlowId}_tile_glow)`} />
         <Rect width="100%" height="100%" fill={`url(#${radialGlowId}_lower)`} />
