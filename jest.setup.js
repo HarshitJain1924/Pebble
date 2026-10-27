@@ -68,3 +68,16 @@ jest.mock('expo-font', () => {
     isLoaded: jest.fn(() => true),
   };
 });
+
+jest.mock('react-native-liquid-glassmorphism', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  return {
+    LiquidGlassView: (props) => React.createElement(View, props, props.children),
+    LiquidGlassContainer: (props) => React.createElement(View, props, props.children),
+    ScrollEdgeBlurView: (props) => React.createElement(View, props, props.children),
+    getGlassCapabilities: () => ({ tier: 'agsl', supported: true }),
+    isLiquidGlassSupported: () => true,
+    useGlassSupport: () => ({ isSupported: true, tier: 'agsl' }),
+  };
+});

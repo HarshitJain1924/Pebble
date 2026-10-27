@@ -49,6 +49,7 @@ export interface ChecklistOccurrenceOverrides {
   title?: string;
   description?: string;
   priority?: Checklist["priority"];
+  categoryId?: string;
   items?: Checklist["items"];
   resourceIds?: string[];
   schedule?: Checklist["schedule"];

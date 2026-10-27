@@ -34,7 +34,8 @@ export const CategoryChip: React.FC<CategoryChipProps> = ({
 
   const tint = meta?.tint ?? (isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)");
   const color = meta?.color ?? colors.textMuted;
-  const iconName = meta?.icon ?? "folder";
+  const rawIcon = meta?.icon ?? "folder";
+  const iconName = rawIcon === "wallet" ? "credit-card" : rawIcon;
 
   return (
     <View

@@ -8,6 +8,7 @@ export interface ChecklistFormState {
   title: string;
   description: string;
   workspaceId: string;
+  categoryId?: string;
   priority: TaskPriority;
   items: ChecklistItem[];
   linkedCollectionIds: string[];
@@ -36,6 +37,7 @@ const INITIAL_FORM: ChecklistFormState = {
   title: "",
   description: "",
   workspaceId: INBOX_WORKSPACE_ID,
+  categoryId: undefined,
   priority: "none",
   items: [],
   linkedCollectionIds: [],
@@ -179,6 +181,7 @@ export function useChecklistDetailForm() {
       title: data.title || "",
       description: data.description || "",
       workspaceId: data.workspaceId || INBOX_WORKSPACE_ID,
+      categoryId: data.categoryId,
       priority: data.priority || "none",
       items: data.items || [],
       linkedCollectionIds: data.resourceIds || [],

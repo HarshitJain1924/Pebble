@@ -1,22 +1,11 @@
 import * as Haptics from "expo-haptics";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  Alert,
-  Linking,
-  Modal,
-  ScrollView,
-  StyleSheet,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { Alert, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Feather } from "@expo/vector-icons";
 
-import { AppCard } from "@/shared/components/ui/AppCard";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { useUndo } from "@/shared/components/ui/UndoContext";
-import { Colors, Palette } from "@/shared/constants/theme";
-import { Spacing } from "@/shared/constants/spacing";
+import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import type {
   Checklist,
@@ -36,37 +25,25 @@ import {
   WorkspaceRepository,
 } from "@/repositories";
 import { EntityCommandService } from "@/services/command/EntityCommandService";
-import { PressableScale } from "@/shared/components/ui/PressableScale";
 import { dateKeyFromDate, getTodayDateKey } from "@/shared/utils/date-key";
 import { generateId } from "@/shared/utils/id";
-import {
-  getChecklistItemCompletedForDate,
-  getChecklistCompletedItemsCountForDate,
-} from "@/shared/utils/domain-selectors";
-import {
-  getRecurrenceLabel,
-  getActiveOccurrenceDateKey,
-} from "@/services/scheduling/recurrence.service";
-import {
-  formatReminderDisplay,
-} from "@/services/scheduling/schedule-formatter";
-import {
-  DetailActions,
-  DetailHeader,
-  DetailRow,
-  DetailSection,
-  DetailShell,
-} from "@/features/details";
-import {
-  ResourceAttachmentPicker,
-  ConnectedResourcesView,
-} from "@/features/details/resources";
+import { getChecklistCompletedItemsCountForDate } from "@/shared/utils/domain-selectors";
+import { getActiveOccurrenceDateKey } from "@/services/scheduling/recurrence.service";
+import { formatReminderDisplay } from "@/services/scheduling/schedule-formatter";
+import { DetailShell } from "@/features/details";
+import { ResourceAttachmentPicker } from "@/features/details/resources";
 import {
   useChecklistDetailForm,
   computeTriggerEpoch,
   effectiveWeeklyDays,
 } from "@/features/details/checklist/hooks/useChecklistDetailForm";
 import { ChecklistDetailForm } from "@/features/details/checklist/components/ChecklistDetailForm";
+import { ChecklistDetailHeader } from "@/features/details/checklist/components/ChecklistDetailHeader";
+import { ChecklistDetailView } from "@/features/details/checklist/components/ChecklistDetailView";
+import { ChecklistWorkspaceModal } from "@/features/details/checklist/components/ChecklistWorkspaceModal";
+import { ChecklistRecurringModal } from "@/features/details/checklist/components/ChecklistRecurringModal";
+import { ChecklistAmbientBackground } from "@/features/details/checklist/components/ChecklistAmbientBackground";
+import { getChecklistColor } from "@/features/checklists/utils/checklist-colors";
 
 export interface ChecklistDetailContentProps {
   checklistId: string;
@@ -78,9 +55,8 @@ export interface ChecklistDetailContentProps {
 }
 
 /**
- * Checklist Detail screen on the shared Detail System. Owns checklist loading,
- * the edit-form state group, view/edit modes, the workspace + link-resource
- * pickers, and all checklist mutations (routed through EntityCommandService).
+ * Checklist Detail screen orchestrator.
+ * Coordinates loading, form state, view/edit mode dispatch, and entity mutations.
  */
 export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
   checklistId,
@@ -99,10 +75,11 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [resourcesList, setResourcesList] = useState<Resource[]>([]);
 
-  // Editor sub-states
+  // Editor modal sub-states
   const [workspacePickerVisible, setWorkspacePickerVisible] = useState(false);
   const [linkPickerVisible, setLinkPickerVisible] = useState(false);
   const [showEditRecurringModal, setShowEditRecurringModal] = useState(false);
+  const [quickItemText, setQuickItemText] = useState("");
 
   const {
     form,
@@ -145,8 +122,7 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
     [toggleResource, isEditing, item, form.linkedCollectionIds],
   );
 
-  // Recurring checklists represent a specific occurrence date; if not provided via route,
-  // resolve to the active occurrence key for today so completions are isolated.
+  // Occurrence resolution for recurring checklists
   const effectiveOccurrenceDate = useMemo(() => {
     if (!item?.recurrence) return undefined;
     if (occurrenceDate) return occurrenceDate;
@@ -155,13 +131,15 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
 
   const completedCount = useMemo(() => {
     if (item?.recurrence && effectiveOccurrenceDate) {
-      return getChecklistCompletedItemsCountForDate(item, effectiveOccurrenceDate);
+      return getChecklistCompletedItemsCountForDate(
+        item,
+        effectiveOccurrenceDate,
+      );
     }
     return (item?.items || form.items).filter((it) => it.completed).length;
   }, [item, form.items, effectiveOccurrenceDate]);
 
   const totalCount = form.items.length;
-  const progress = totalCount > 0 ? completedCount / totalCount : 0;
 
   const handleToggleItem = useCallback(
     async (itemId: string) => {
@@ -169,7 +147,9 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
       try {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
         const targetDate =
-          item.recurrence && effectiveOccurrenceDate ? effectiveOccurrenceDate : undefined;
+          item.recurrence && effectiveOccurrenceDate
+            ? effectiveOccurrenceDate
+            : undefined;
         await EntityCommandService.toggleChecklistItem(
           item.id,
           itemId,
@@ -193,17 +173,42 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
     [item, effectiveOccurrenceDate, reset],
   );
 
-  const currentWorkspace: {
-    name: string;
-    emoji?: string;
-    icon?: string;
-    iconType?: "emoji" | "icon";
-    color?: string;
-  } = useMemo(() => {
+  const handleQuickAddItem = useCallback(async () => {
+    const trimmed = quickItemText.trim();
+    if (!trimmed || !item) return;
+    const newItem = {
+      id: generateId("item-"),
+      title: trimmed,
+      completed: false,
+    };
+    const updatedItems = [...(item.items || []), newItem];
+    setQuickItemText("");
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    try {
+      await EntityCommandService.updateChecklist(
+        item.id,
+        item.workspaceId || INBOX_WORKSPACE_ID,
+        { items: updatedItems },
+      );
+      emitStateChange("checklists_changed", "checklist_detail");
+      const refreshed = await ChecklistRepository.getChecklist(
+        item.id,
+        item.workspaceId || INBOX_WORKSPACE_ID,
+      );
+      if (refreshed) {
+        setItem(refreshed);
+        reset(refreshed);
+      }
+    } catch (e) {
+      console.warn("Failed to add checklist item", e);
+    }
+  }, [quickItemText, item, reset]);
+
+  const currentWorkspace = useMemo(() => {
     return (
       workspaces.find((ws) => ws.id === form.workspaceId) || {
         name: "Inbox",
-        emoji: "📥",
+        icon: "inbox",
       }
     );
   }, [workspaces, form.workspaceId]);
@@ -214,7 +219,8 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
     if (form.description.trim() !== (item.description || "").trim()) return true;
     if (form.workspaceId !== (item.workspaceId || INBOX_WORKSPACE_ID))
       return true;
-    if ((form.priority || "none") !== (item.priority || "none"))
+    if ((form.priority || "none") !== (item.priority || "none")) return true;
+    if ((form.categoryId || undefined) !== (item.categoryId || undefined))
       return true;
 
     // Compare items
@@ -236,7 +242,9 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
     // Compare schedule
     const itemSchedDate = item.schedule?.date || "inbox";
     if (form.scheduleDate !== itemSchedDate) return true;
-    if ((form.startTime || undefined) !== (item.schedule?.startTime || undefined))
+    if (
+      (form.startTime || undefined) !== (item.schedule?.startTime || undefined)
+    )
       return true;
     if (
       (form.durationMinutes || undefined) !==
@@ -284,8 +292,6 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
         if (form.intervalVal !== (rec.interval || 1)) return true;
       }
       if (form.recurrenceType === "weekly") {
-        // Compare the effective weekday sets: a stored empty set means "anchor
-        // to the start weekday", which is exactly what the editor seeds.
         const currentDays = effectiveWeeklyDays(
           form.recurrenceDays,
           form.scheduleDate,
@@ -309,7 +315,6 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
     if (!checklistId) return;
     setLoading(true);
     try {
-      // 1. Load workspaces
       const loadedFolders = await WorkspaceRepository.getWorkspaces();
       const loadedWorkspaces: Workspace[] = loadedFolders.map((folder) => ({
         id: folder.id,
@@ -334,7 +339,6 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
         ]),
       );
 
-      // 2. Load resources
       const allLoadedResources: Resource[] = [];
       for (const fId of folderIds) {
         const resMap = await ResourceRepository.getResources(fId);
@@ -344,11 +348,12 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
       }
       setResourcesList(allLoadedResources);
 
-      // 3. Load checklist item
       let foundChecklist: Checklist | undefined;
-
       for (const fId of folderIds) {
-        const checklist = await ChecklistRepository.getChecklist(checklistId, fId);
+        const checklist = await ChecklistRepository.getChecklist(
+          checklistId,
+          fId,
+        );
         if (checklist) {
           foundChecklist = checklist;
           break;
@@ -409,7 +414,8 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
           date: form.scheduleDate,
           startTime: form.startTime || undefined,
           endTime: calculatedEndTime,
-          durationMinutes: form.durationMinutes || (form.startTime ? 45 : undefined),
+          durationMinutes:
+            form.durationMinutes || (form.startTime ? 45 : undefined),
           allDay: !form.startTime ? true : undefined,
         };
       }
@@ -435,7 +441,9 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
 
         const targetDate =
           form.reminderDate ||
-          (form.scheduleDate !== "inbox" ? form.scheduleDate : dateKeyFromDate(new Date()));
+          (form.scheduleDate !== "inbox"
+            ? form.scheduleDate
+            : dateKeyFromDate(new Date()));
 
         const triggerAt = isReminderUnchanged
           ? itemReminderTriggerAt
@@ -460,15 +468,14 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
       if (form.recurrenceType && form.recurrenceType !== "none") {
         recurrenceObj = {
           frequency: form.recurrenceType as RecurrenceRule["frequency"],
-          interval: form.intervalVal || 1,
-          // `unit` is only meaningful for custom/interval rules. Preserve the
-          // stored value so an hourly rule is never downgraded to daily by an
-          // unrelated edit.
+          interval:
+            form.recurrenceType === "custom"
+              ? form.intervalVal
+              : item.recurrence?.interval || 1,
           ...(form.recurrenceType === "custom" && form.recurrenceUnit
             ? { unit: form.recurrenceUnit }
             : {}),
-          // A weekly rule always persists at least one weekday: an empty
-          // `daysOfWeek` array would match no date in the occurrence engine.
+          ...(item.recurrence?.unit ? { unit: item.recurrence.unit } : {}),
           daysOfWeek:
             form.recurrenceType === "weekly"
               ? effectiveWeeklyDays(form.recurrenceDays, form.scheduleDate)
@@ -477,8 +484,6 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
             form.recurrenceType === "monthly"
               ? form.recurrenceDayOfMonth
               : undefined,
-          // The editor does not expose these yet; carry them through untouched
-          // instead of silently erasing previously configured limits.
           ...(form.recurrenceEndDate
             ? { endDate: form.recurrenceEndDate }
             : {}),
@@ -494,12 +499,9 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
       let savedItemForRefresh: Checklist | null = null;
 
       if (thisOccurrenceOnly && occurrenceDate) {
-        // Occurrence-only detachment: the master's recurrence exception and the
-        // detached copy are written in a single atomic partition write by the
-        // command handler, so an occurrence can never be suppressed without a
-        // valid replacement. The handler also emits `checklists_changed`.
         const targetOccurrenceDate =
-          form.scheduleDate && form.scheduleDate !== (item.schedule?.date || "inbox")
+          form.scheduleDate &&
+          form.scheduleDate !== (item.schedule?.date || "inbox")
             ? form.scheduleDate
             : occurrenceDate;
 
@@ -514,6 +516,7 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
               title: form.title.trim(),
               description: form.description.trim() || undefined,
               priority: form.priority || item.priority || "none",
+              categoryId: form.categoryId || undefined,
               items: form.items,
               resourceIds: form.linkedCollectionIds,
               schedule: {
@@ -524,9 +527,6 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
             },
           );
 
-        // A single occurrence cannot change workspace inside the atomic
-        // partition write. The copy is created in the master's workspace and
-        // then moved through the journaled move command.
         if (form.workspaceId !== oldFolderId) {
           await EntityCommandService.moveChecklist(
             occurrenceChecklist.id,
@@ -538,12 +538,14 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
         savedItemForRefresh = {
           ...occurrenceChecklist,
           workspaceId: form.workspaceId,
+          categoryId: form.categoryId || undefined,
         };
       } else {
         await EntityCommandService.updateChecklist(item.id, oldFolderId, {
           title: form.title.trim(),
           description: form.description.trim() || undefined,
           priority: form.priority || item.priority || "none",
+          categoryId: form.categoryId || undefined,
           items: form.items,
           resourceIds: form.linkedCollectionIds,
           schedule: scheduleObj,
@@ -565,6 +567,7 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
           description: form.description.trim() || undefined,
           workspaceId: form.workspaceId,
           priority: form.priority || item.priority || "none",
+          categoryId: form.categoryId || undefined,
           items: form.items,
           resourceIds: form.linkedCollectionIds,
           schedule: scheduleObj,
@@ -574,9 +577,9 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
         };
       }
 
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
-        () => {},
-      );
+      Haptics.notificationAsync(
+        Haptics.NotificationFeedbackType.Success,
+      ).catch(() => {});
 
       setIsEditing(false);
       showToast("Changes saved");
@@ -597,9 +600,6 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
         id: generateId("checklist-"),
         title: `${item.title} (Copy)`,
         priority: item.priority || "none",
-        // A duplicate is a new entity: it must not inherit occurrence history,
-        // the one-time Pebble latch, or the source's runtime-owned notification
-        // IDs. Completion is reset following Task/Habit duplication semantics.
         items: (item.items || []).map((item) => ({
           ...item,
           completed: false,
@@ -660,14 +660,6 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
     }
   };
 
-  const handleOpenUrl = async (url?: string) => {
-    if (!url) return;
-    const formattedUrl = /^https?:\/\//i.test(url) ? url : `https://${url}`;
-    try {
-      await Linking.openURL(formattedUrl);
-    } catch {}
-  };
-
   const handleBack = () => {
     if (isEditing) {
       setIsEditing(false);
@@ -690,14 +682,6 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
       return `${dateStr} at ${item.schedule.startTime}${durStr}`;
     }
     return `${dateStr} (All Day)`;
-  }, [item, occurrenceDate]);
-
-  const reminderDisplay = useMemo(() => {
-    if (!item?.reminder?.enabled || !item.reminder.triggerAt) {
-      return "Off";
-    }
-    const scheduledDate = occurrenceDate || item?.schedule?.date;
-    return formatReminderDisplay(item.reminder.triggerAt, scheduledDate);
   }, [item, occurrenceDate]);
 
   if (loading || !item) {
@@ -724,307 +708,58 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
       })
     : "Unknown";
 
-  const header = (
-    <View
-      style={[
-        styles.headerContainer,
-        {
-          backgroundColor: colors.background,
-          borderBottomColor: colors.border,
-        },
-      ]}
-    >
-      <DetailHeader
-        title={isEditing ? "Edit Checklist" : "Checklist Details"}
-        onBack={handleBack}
-        action={
-          <TouchableOpacity
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
-                () => {},
-              );
-              if (isEditing) {
-                handleSave();
-              } else {
-                setIsEditing(true);
-              }
-            }}
-            style={[
-              styles.saveBtn,
-              {
-                backgroundColor: isEditing
-                  ? hasChanges
-                    ? colors.primary
-                    : colors.card
-                  : "transparent",
-              },
-            ]}
-            disabled={isEditing && !hasChanges}
-            accessibilityRole="button"
-            accessibilityLabel={isEditing ? "Save checklist" : "Edit checklist"}
-          >
-            <Text
-              style={{
-                color: isEditing
-                  ? hasChanges
-                    ? Palette.white
-                    : colors.textMuted
-                  : colors.primary,
-                fontWeight: "700",
-                fontSize: 13,
-              }}
-            >
-              {isEditing ? "Save" : "Edit"}
-            </Text>
-          </TouchableOpacity>
-        }
-      />
-    </View>
+  const checklistColor = getChecklistColor(
+    isEditing ? form.categoryId : item.categoryId,
   );
 
   return (
     <>
-      <DetailShell header={header} contentContainerStyle={{ paddingBottom: 60 }}>
+      <DetailShell
+        style={{ backgroundColor: isLight ? colors.background : "#101012" }}
+        background={
+          <ChecklistAmbientBackground
+            color={checklistColor}
+            isLight={isLight}
+          />
+        }
+        header={
+          <ChecklistDetailHeader
+            isEditing={isEditing}
+            hasChanges={hasChanges}
+            isLight={isLight}
+            colors={colors}
+            onBack={handleBack}
+            onSave={handleSave}
+            onEdit={() => setIsEditing(true)}
+          />
+        }
+        contentContainerStyle={{ paddingBottom: 60 }}
+      >
         {!isEditing ? (
-          /* ===== DETAILS VIEW ===== */
-          <View style={{ gap: Spacing.xl }}>
-            {/* Title and Workspace Header */}
-            <View>
-              <Text style={[styles.itemTitle, { color: colors.text }]}>
-                {item.title}
-              </Text>
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 6,
-                  marginTop: 6,
-                }}
-              >
-                {currentWorkspace.iconType === "icon" || (!currentWorkspace.emoji && currentWorkspace.icon) ? (
-                  <Feather
-                    name={(currentWorkspace.icon || "folder") as any}
-                    size={14}
-                    color={currentWorkspace.color || colors.textMuted}
-                  />
-                ) : (
-                  <Text style={{ fontSize: 14 }}>
-                    {currentWorkspace.emoji || "📁"}
-                  </Text>
-                )}
-                <Text
-                  style={{
-                    color: colors.textMuted,
-                    fontSize: 13,
-                    fontWeight: "600",
-                  }}
-                >
-                  {currentWorkspace.name}
-                </Text>
-              </View>
-            </View>
-
-            {/* Description (if present) */}
-            {item.description ? (
-              <DetailSection title="Description">
-                <Text
-                  style={{ color: colors.text, fontSize: 14, lineHeight: 20 }}
-                >
-                  {item.description}
-                </Text>
-              </DetailSection>
-            ) : null}
-
-            {/* Progress */}
-            <DetailSection title="Progress">
-              <DetailRow
-                label="Progress"
-                value={`${completedCount} of ${totalCount} completed`}
-                icon={<Feather name="activity" size={16} color={colors.primary} />}
-              />
-              {/* Progress bar */}
-              <View
-                style={[
-                  styles.progressTrack,
-                  {
-                    backgroundColor: isLight
-                      ? "rgba(0,0,0,0.06)"
-                      : "rgba(255,255,255,0.08)",
-                  },
-                ]}
-              >
-                <View
-                  style={[
-                    styles.progressBar,
-                    {
-                      width: `${progress * 100}%`,
-                      backgroundColor: colors.primary,
-                    },
-                  ]}
-                />
-              </View>
-            </DetailSection>
-
-            {/* Checklist Items */}
-            <DetailSection title="Checklist Items">
-              {form.items.length === 0 ? (
-                <Text
-                  style={{
-                    color: colors.textMuted,
-                    fontSize: 13,
-                    fontStyle: "italic",
-                    textAlign: "center",
-                    paddingVertical: 12,
-                  }}
-                >
-                  No items in this checklist.
-                </Text>
-              ) : (
-                form.items.map((cIt) => {
-                  const isCompleted =
-                    item?.recurrence && effectiveOccurrenceDate
-                      ? getChecklistItemCompletedForDate(
-                          item,
-                          cIt.id,
-                          effectiveOccurrenceDate,
-                        )
-                      : cIt.completed;
-
-                  return (
-                    <PressableScale
-                      key={cIt.id}
-                      onPress={() => handleToggleItem(cIt.id)}
-                      scaleTo={0.98}
-                      contentStyle={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 10,
-                        paddingVertical: 8,
-                      }}
-                      accessibilityRole="checkbox"
-                      accessibilityState={{ checked: isCompleted }}
-                      accessibilityLabel={`Toggle ${cIt.title}`}
-                    >
-                      <Feather
-                        name={isCompleted ? "check-circle" : "circle"}
-                        size={18}
-                        color={
-                          isCompleted ? colors.primary : colors.textMuted
-                        }
-                      />
-                      <Text
-                        style={{
-                          fontSize: 14,
-                          fontWeight: "500",
-                          color: isCompleted ? colors.textMuted : colors.text,
-                          textDecorationLine: isCompleted
-                            ? "line-through"
-                            : "none",
-                          flex: 1,
-                        }}
-                      >
-                        {cIt.title}
-                      </Text>
-                    </PressableScale>
-                  );
-                })
-              )}
-            </DetailSection>
-
-            {/* Schedule & Timing Metadata */}
-            <DetailSection title="Schedule & Timing">
-              <DetailRow
-                label="Schedule"
-                value={scheduleDisplay}
-                icon={<Feather name="calendar" size={16} color={colors.textMuted} />}
-              />
-              <DetailRow
-                label="Reminder"
-                value={reminderDisplay}
-                icon={<Feather name="bell" size={16} color={colors.textMuted} />}
-              />
-              <DetailRow
-                label="Repeat"
-                value={getRecurrenceLabel(item.recurrence) || "None"}
-                icon={<Feather name="repeat" size={16} color={colors.textMuted} />}
-              />
-              <DetailRow
-                label="Created Date"
-                value={createdDate}
-                icon={
-                  <Feather name="calendar" size={16} color={colors.textMuted} />
-                }
-              />
-            </DetailSection>
-
-            {/* Attached Resources Preview (Interactive Carousel) */}
-            <ConnectedResourcesView
-              resources={linkedResources}
-              onAttachPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                setLinkPickerVisible(true);
-              }}
-              onUnlink={handleToggleResource}
-              workspaceId={form.workspaceId}
-            />
-
-            {/* Actions */}
-            <View style={{ gap: Spacing.sm, marginTop: Spacing.md }}>
-              <DetailActions
-                actions={[
-                  {
-                    key: "duplicate",
-                    label: "Duplicate Checklist",
-                    icon: <Feather name="copy" size={16} color={colors.text} />,
-                    onPress: handleDuplicate,
-                  },
-                ]}
-              />
-              <DetailActions
-                actions={[
-                  {
-                    key: "archive",
-                    label: "Archive Checklist",
-                    icon: (
-                      <Feather name="archive" size={16} color={colors.text} />
-                    ),
-                    onPress: () => {
-                      Alert.alert(
-                        "Archive Checklist",
-                        "Archive this checklist?",
-                        [
-                          { text: "Cancel", style: "cancel" },
-                          { text: "Archive", onPress: handleArchive },
-                        ],
-                      );
-                    },
-                  },
-                  {
-                    key: "delete",
-                    label: "Delete Checklist",
-                    tone: "danger",
-                    icon: <Feather name="trash-2" size={16} color={Palette.white} />,
-                    onPress: () => {
-                      Alert.alert(
-                        "Delete Checklist",
-                        "Delete this checklist permanently?",
-                        [
-                          { text: "Cancel", style: "cancel" },
-                          {
-                            text: "Delete",
-                            style: "destructive",
-                            onPress: handleDelete,
-                          },
-                        ],
-                      );
-                    },
-                  },
-                ]}
-              />
-            </View>
-          </View>
+          <ChecklistDetailView
+            item={item}
+            items={form.items}
+            effectiveOccurrenceDate={effectiveOccurrenceDate}
+            completedCount={completedCount}
+            totalCount={totalCount}
+            currentWorkspace={currentWorkspace}
+            linkedResources={linkedResources}
+            isLight={isLight}
+            colors={colors}
+            createdDate={createdDate}
+            scheduleDisplay={scheduleDisplay}
+            quickItemText={quickItemText}
+            setQuickItemText={setQuickItemText}
+            onQuickAddItem={handleQuickAddItem}
+            onToggleItem={handleToggleItem}
+            onOpenLinkPicker={() => setLinkPickerVisible(true)}
+            onToggleResource={handleToggleResource}
+            onDuplicate={handleDuplicate}
+            onArchive={handleArchive}
+            onDelete={handleDelete}
+            accentColor={checklistColor}
+          />
         ) : (
-          /* ===== EDITING VIEW ===== */
           <ChecklistDetailForm
             form={form}
             update={update}
@@ -1046,81 +781,14 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
       </DetailShell>
 
       {/* WORKSPACE PICKER MODAL */}
-      <Modal visible={workspacePickerVisible} transparent animationType="fade">
-        <View style={styles.modalBackdrop}>
-          <AppCard
-            style={[
-              styles.modalCard,
-              { backgroundColor: colors.card, borderColor: colors.border },
-            ]}
-          >
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: colors.text }]}>
-                Select Workspace
-              </Text>
-              <TouchableOpacity
-                onPress={() => setWorkspacePickerVisible(false)}
-                style={styles.closeBtn}
-                accessibilityRole="button"
-                accessibilityLabel="Close workspace selector"
-              >
-                <Feather name="x" size={18} color={colors.textMuted} />
-              </TouchableOpacity>
-            </View>
-            <ScrollView style={{ maxHeight: 300 }}>
-              {workspaces.map((ws) => (
-                <TouchableOpacity
-                  key={ws.id}
-                  style={[
-                    styles.pickerRow,
-                    {
-                      backgroundColor:
-                        form.workspaceId === ws.id
-                          ? `${colors.primary}15`
-                          : "transparent",
-                    },
-                  ]}
-                  onPress={() => {
-                    Haptics.impactAsync(
-                      Haptics.ImpactFeedbackStyle.Light,
-                    ).catch(() => {});
-                    update({ workspaceId: ws.id });
-                    setWorkspacePickerVisible(false);
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Select ${ws.name} workspace`}
-                >
-                  {ws.iconType === "icon" || (!ws.emoji && ws.icon) ? (
-                    <Feather
-                      name={(ws.icon || "folder") as any}
-                      size={18}
-                      color={form.workspaceId === ws.id ? colors.primary : colors.text}
-                      style={{ marginRight: 10 }}
-                    />
-                  ) : (
-                    <Text style={{ fontSize: 18, marginRight: 10 }}>
-                      {ws.emoji || "📁"}
-                    </Text>
-                  )}
-                  <Text
-                    style={{
-                      color:
-                        form.workspaceId === ws.id
-                          ? colors.primary
-                          : colors.text,
-                      fontWeight:
-                        form.workspaceId === ws.id ? "700" : "500",
-                      fontSize: 15,
-                    }}
-                  >
-                    {ws.name}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </AppCard>
-        </View>
-      </Modal>
+      <ChecklistWorkspaceModal
+        visible={workspacePickerVisible}
+        workspaces={workspaces}
+        selectedWorkspaceId={form.workspaceId}
+        colors={colors}
+        onSelect={(wsId) => update({ workspaceId: wsId })}
+        onClose={() => setWorkspacePickerVisible(false)}
+      />
 
       {/* RESOURCE LIST PICKER MODAL */}
       <ResourceAttachmentPicker
@@ -1132,137 +800,17 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
       />
 
       {/* RECURRING EDIT MODAL */}
-      <Modal
+      <ChecklistRecurringModal
         visible={showEditRecurringModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowEditRecurringModal(false)}
-      >
-        <TouchableOpacity
-          style={styles.modalBackdrop}
-          activeOpacity={1}
-          onPress={() => setShowEditRecurringModal(false)}
-        >
-          <TouchableOpacity
-            activeOpacity={1}
-            style={[
-              styles.modalCard,
-              { backgroundColor: colors.card, borderColor: colors.border },
-            ]}
-            onPress={(e) => e.stopPropagation()}
-          >
-            <Text
-              style={{
-                color: colors.text,
-                fontWeight: "700",
-                fontSize: 16,
-                marginBottom: 8,
-              }}
-            >
-              Edit Recurring Checklist
-            </Text>
-            <Text
-              style={{
-                color: colors.textMuted,
-                fontSize: 13,
-                marginBottom: 20,
-              }}
-            >
-              Do you want to edit only this occurrence or all occurrences?
-            </Text>
-            <View style={{ flexDirection: "row", gap: 12 }}>
-              <TouchableOpacity
-                style={[
-                  styles.modalBtn,
-                  { flex: 1, backgroundColor: `${colors.primary}15` },
-                ]}
-                onPress={() => saveChanges(true)}
-                accessibilityRole="button"
-                accessibilityLabel="This occurrence"
-              >
-                <Text style={{ color: colors.primary, fontWeight: "700" }}>
-                  This occurrence
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.modalBtn,
-                  { flex: 1, backgroundColor: colors.primary },
-                ]}
-                onPress={() => saveChanges(false)}
-                accessibilityRole="button"
-                accessibilityLabel="All occurrences"
-              >
-                <Text style={{ color: Palette.white, fontWeight: "700" }}>
-                  All occurrences
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
+        colors={colors}
+        onThisOccurrence={() => saveChanges(true)}
+        onAllOccurrences={() => saveChanges(false)}
+        onClose={() => setShowEditRecurringModal(false)}
+      />
     </>
   );
 };
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1 },
-  headerContainer: {
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.sm,
-    paddingBottom: Spacing.sm,
-    borderBottomWidth: 1,
-  },
-  itemTitle: { fontSize: 22, fontWeight: "800", letterSpacing: -0.3 },
-  progressTrack: {
-    height: 6,
-    borderRadius: 3,
-    overflow: "hidden",
-    marginTop: 8,
-    marginBottom: 4,
-  },
-  progressBar: {
-    height: "100%",
-    borderRadius: 3,
-  },
-  saveBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 14,
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: Spacing.lg,
-  },
-  modalCard: {
-    width: "100%",
-    maxHeight: "80%",
-    borderRadius: 20,
-    padding: Spacing.lg,
-    borderWidth: 1,
-  },
-  modalBtn: {
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  modalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: Spacing.md,
-  },
-  modalTitle: { fontSize: 17, fontWeight: "700" },
-  closeBtn: { padding: 4 },
-  pickerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-  },
 });

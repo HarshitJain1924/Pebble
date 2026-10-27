@@ -36,6 +36,7 @@ interface HabitSectionProps {
   selectedDate?: string;
   onSelectDate?: (dateKey: string) => void;
   onOpenDatePicker?: () => void;
+  hideDateHeader?: boolean;
 }
 
 export function HabitSection({
@@ -53,6 +54,7 @@ export function HabitSection({
   selectedDate,
   onSelectDate,
   onOpenDatePicker,
+  hideDateHeader = false,
 }: HabitSectionProps) {
   const router = useRouter();
   const colorScheme = useColorScheme();
@@ -179,16 +181,18 @@ export function HabitSection({
         <View style={{ gap: 14 }}>
           {/* Today / Selected Date Section */}
           <View style={styles.sectionContainer}>
-            <DateScopedSectionHeader
-              dateKey={selectedDateKey}
-              onSelectDate={onSelectDate || (() => {})}
-              onOpenDatePicker={onOpenDatePicker}
-              colors={colors}
-              isDark={!isLight}
-              itemCount={todayList.length}
-              isExpanded={todayExpanded}
-              onToggleExpand={() => setTodayExpanded(!todayExpanded)}
-            />
+            {!hideDateHeader && (
+              <DateScopedSectionHeader
+                dateKey={selectedDateKey}
+                onSelectDate={onSelectDate || (() => {})}
+                onOpenDatePicker={onOpenDatePicker}
+                colors={colors}
+                isDark={!isLight}
+                itemCount={todayList.length}
+                isExpanded={todayExpanded}
+                onToggleExpand={() => setTodayExpanded(!todayExpanded)}
+              />
+            )}
             {todayExpanded && (
               todayList.length === 0 ? (
                 <View style={{ paddingVertical: 14, alignItems: "center" }}>
@@ -264,18 +268,20 @@ export function HabitSection({
         </View>
       ) : (
         <View style={{ gap: 14 }}>
-          <View style={styles.sectionContainer}>
-            <DateScopedSectionHeader
-              dateKey={selectedDateKey}
-              onSelectDate={onSelectDate || (() => {})}
-              onOpenDatePicker={onOpenDatePicker}
-              colors={colors}
-              isDark={!isLight}
-              itemCount={0}
-              isExpanded={todayExpanded}
-              onToggleExpand={() => setTodayExpanded(!todayExpanded)}
-            />
-          </View>
+          {!hideDateHeader && (
+            <View style={styles.sectionContainer}>
+              <DateScopedSectionHeader
+                dateKey={selectedDateKey}
+                onSelectDate={onSelectDate || (() => {})}
+                onOpenDatePicker={onOpenDatePicker}
+                colors={colors}
+                isDark={!isLight}
+                itemCount={0}
+                isExpanded={todayExpanded}
+                onToggleExpand={() => setTodayExpanded(!todayExpanded)}
+              />
+            </View>
+          )}
           <WorkspaceEmptyState
             context="habits"
             searchQuery={searchQuery}

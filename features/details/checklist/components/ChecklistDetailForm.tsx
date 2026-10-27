@@ -18,6 +18,9 @@ import type { Resource } from "@/shared/types/domain.types";
 import { getDateKey } from "@/services/scheduling/recurrence.service";
 import { formatReminderTime } from "@/services/scheduling/schedule-formatter";
 import type { ChecklistFormState } from "@/features/details/checklist/hooks/useChecklistDetailForm";
+import { CATEGORY_OPTIONS, PRIORITY_OPTIONS } from "@/features/details/options";
+import { CategoryChip } from "@/shared/components/design-system";
+import { getWorkspaceIconName } from "@/shared/utils/workspace-icon";
 
 export interface ChecklistDetailFormProps {
   form: ChecklistFormState;
@@ -34,9 +37,7 @@ export interface ChecklistDetailFormProps {
   toggleResource: (resId: string) => void;
   currentWorkspace: {
     name: string;
-    emoji?: string;
     icon?: string;
-    iconType?: "emoji" | "icon";
     color?: string;
   };
   linkedResources: Resource[];
@@ -139,17 +140,11 @@ export const ChecklistDetailForm: React.FC<ChecklistDetailFormProps> = ({
           accessibilityLabel="Select workspace"
         >
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            {currentWorkspace.iconType === "icon" || (!currentWorkspace.emoji && currentWorkspace.icon) ? (
-              <Feather
-                name={(currentWorkspace.icon || "folder") as any}
-                size={15}
-                color={currentWorkspace.color || colors.primary}
-              />
-            ) : (
-              <Text style={{ fontSize: 15 }}>
-                {currentWorkspace.emoji || "📁"}
-              </Text>
-            )}
+            <Feather
+              name={getWorkspaceIconName(currentWorkspace)}
+              size={15}
+              color={currentWorkspace.color || colors.primary}
+            />
             <Text
               style={{ color: colors.text, fontSize: 15, fontWeight: "500" }}
             >
@@ -158,6 +153,92 @@ export const ChecklistDetailForm: React.FC<ChecklistDetailFormProps> = ({
           </View>
           <Feather name="chevron-down" size={18} color={colors.textMuted} />
         </TouchableOpacity>
+      </View>
+
+      {/* Category Selector */}
+      <View style={styles.inputWrap}>
+        <Text style={[styles.inputLabel, { color: colors.textMuted }]}>
+          CATEGORY
+        </Text>
+        <View style={styles.pillsContainer}>
+          {CATEGORY_OPTIONS.map((cat) => {
+            const isSelected = form.categoryId === cat.key;
+            return (
+              <TouchableOpacity
+                key={cat.key}
+                style={[
+                  styles.pill,
+                  {
+                    backgroundColor: isSelected
+                      ? `${cat.color}22`
+                      : colors.card,
+                    borderColor: isSelected ? cat.color : colors.border,
+                  },
+                ]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                  update({ categoryId: isSelected ? undefined : cat.key });
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={`Category ${cat.label}`}
+              >
+                <CategoryChip category={cat.key} size="xs" />
+                <Text
+                  style={{
+                    color: isSelected ? cat.color : colors.text,
+                    fontSize: 13,
+                    fontWeight: "600",
+                    marginLeft: 6,
+                  }}
+                >
+                  {cat.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+
+      {/* Priority Selector */}
+      <View style={styles.inputWrap}>
+        <Text style={[styles.inputLabel, { color: colors.textMuted }]}>
+          PRIORITY
+        </Text>
+        <View style={styles.pillsContainer}>
+          {PRIORITY_OPTIONS.map((prio) => {
+            const isSelected = form.priority === prio.key;
+            return (
+              <TouchableOpacity
+                key={prio.key}
+                style={[
+                  styles.pill,
+                  {
+                    backgroundColor: isSelected
+                      ? `${prio.color}22`
+                      : colors.card,
+                    borderColor: isSelected ? prio.color : colors.border,
+                  },
+                ]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                  update({ priority: isSelected ? "none" : (prio.key as any) });
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={`Priority ${prio.label}`}
+              >
+                <Text
+                  style={{
+                    color: isSelected ? prio.color : colors.text,
+                    fontSize: 13,
+                    fontWeight: "700",
+                  }}
+                >
+                  {prio.label.toUpperCase()}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
       </View>
 
       {/* Checklist Items Editor */}

@@ -70,6 +70,13 @@ const HOUR_HEIGHT = WEEK_HOUR_HEIGHT; // 60px
 const HOURS = Array.from({ length: 24 }, (_, i) => i); // 00:00 (12 AM) to 23:00 (11 PM)
 const TIME_LABEL_WIDTH = WEEK_TIME_LABEL_WIDTH; // 50px
 
+// The week canvas is always built Monday-first (see the weekDays memo), while the
+// shared WEEKDAY_NAMES list is Sunday-first.
+const WEEKDAY_NAMES_MONDAY_FIRST = [
+  ...WEEKDAY_NAMES.slice(1),
+  WEEKDAY_NAMES[0],
+];
+
 function formatHour(h: number): string {
   if (h === 0) return "12 AM";
   if (h === 12) return "12 PM";
@@ -122,6 +129,33 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
   const dayColWidth = Math.floor((containerWidth - TIME_LABEL_WIDTH) / visibleDaysCount);
   const totalPages = isTablet ? 1 : Math.ceil(7 / visibleDaysCount);
   const pageInterval = dayColWidth * visibleDaysCount;
+  const canvasWidth = dayColWidth * 7;
+  const viewportWidth = Math.max(0, containerWidth - TIME_LABEL_WIDTH);
+  const maxScrollX = Math.max(0, canvasWidth - viewportWidth);
+
+  // The last page cannot start a full interval from the left edge without clipping the
+  // final column (7 days / 3 columns leaves a single-day page). Anchoring it to the end
+  // of the canvas keeps three complete columns on screen for every page.
+  const pageOffsets = useMemo(() => {
+    if (isTablet) return [0];
+    return Array.from({ length: totalPages }, (_, i) =>
+      Math.min(i * pageInterval, maxScrollX),
+    );
+  }, [isTablet, totalPages, pageInterval, maxScrollX]);
+
+  const describePageRange = useCallback(
+    (page: number) => {
+      if (isTablet) return "Mon – Sun";
+      const offset = pageOffsets[page] ?? 0;
+      const firstIdx = Math.max(0, Math.min(6, Math.round(offset / dayColWidth)));
+      const lastIdx = Math.max(
+        firstIdx,
+        Math.min(6, firstIdx + visibleDaysCount - 1),
+      );
+      return `${WEEKDAY_NAMES_MONDAY_FIRST[firstIdx]} – ${WEEKDAY_NAMES_MONDAY_FIRST[lastIdx]}`;
+    },
+    [isTablet, pageOffsets, dayColWidth, visibleDaysCount],
+  );
 
   // Live Current Time
   const [now, setNow] = useState(() => new Date());
@@ -272,12 +306,17 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
     if (isTablet) return;
     const selectedIdx = weekDays.findIndex((d) => d.isSelected);
     if (selectedIdx !== -1 && horizontalScrollRef.current) {
-      const targetPage = Math.floor(selectedIdx / visibleDaysCount);
-      const targetScrollX = targetPage * pageInterval;
-      horizontalScrollRef.current.scrollTo({ x: targetScrollX, animated: true });
+      const targetPage = Math.min(
+        totalPages - 1,
+        Math.floor(selectedIdx / visibleDaysCount),
+      );
+      horizontalScrollRef.current.scrollTo({
+        x: pageOffsets[targetPage] ?? 0,
+        animated: true,
+      });
       setCurrentPage(targetPage);
     }
-  }, [selectedDate, weekDays, isTablet, visibleDaysCount, pageInterval, horizontalScrollRef]);
+  }, [selectedDate, weekDays, isTablet, visibleDaysCount, pageOffsets, totalPages, horizontalScrollRef]);
 
   const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const x = e.nativeEvent.contentOffset.x;
@@ -286,7 +325,12 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
       onLayoutWeekGrid(dayColWidth, x, mondayDateStr);
     }
     if (isTablet) return;
-    const page = Math.round(x / pageInterval);
+    // Pages are not evenly spaced once the last one is anchored to the canvas end,
+    // so resolve the page by nearest snap offset instead of by division.
+    let page = 0;
+    for (let i = 0; i < pageOffsets.length; i++) {
+      if (Math.abs(x - pageOffsets[i]) < Math.abs(x - pageOffsets[page])) page = i;
+    }
     if (page !== currentPage && page >= 0 && page < totalPages) {
       setCurrentPage(page);
     }
@@ -295,7 +339,10 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
   const handlePageDotPress = (page: number) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     if (horizontalScrollRef.current) {
-      horizontalScrollRef.current.scrollTo({ x: page * pageInterval, animated: true });
+      horizontalScrollRef.current.scrollTo({
+        x: pageOffsets[page] ?? 0,
+        animated: true,
+      });
       setCurrentPage(page);
     }
   };
@@ -402,7 +449,7 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
             ref={horizontalScrollRef as any}
             horizontal
             pagingEnabled={false}
-            snapToInterval={pageInterval}
+            snapToOffsets={pageOffsets}
             snapToAlignment="start"
             decelerationRate="fast"
             showsHorizontalScrollIndicator={false}
@@ -609,27 +656,30 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
 
         {/* 3. Pagination Footer on Mobile */}
         {!isTablet && totalPages > 1 && (
-          <View style={styles.canvasFooter}>
+          <View style={[styles.canvasFooter, { borderTopColor: colors.border }]}>
             <Text style={[styles.swipeHintText, { color: colors.textMuted }]}>
-              {currentPage === 0
-                ? "Mon – Wed · Swipe for Thu – Sat →"
-                : currentPage === 1
-                  ? "← Thu – Sat · Swipe for Sun →"
-                  : "← Sunday · Swipe for Mon – Wed"}
+              {`${describePageRange(currentPage)}${
+                currentPage < totalPages - 1
+                  ? " · Swipe for more →"
+                  : " · ← Swipe back"
+              }`}
             </Text>
             <View style={styles.paginationDots}>
               {Array.from({ length: totalPages }, (_, i) => (
                 <Pressable
                   key={i}
                   onPress={() => handlePageDotPress(i)}
-                  hitSlop={8}
+                  hitSlop={10}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Show ${describePageRange(i)}`}
+                  accessibilityState={{ selected: currentPage === i }}
                   style={[
                     styles.pageDot,
                     {
                       backgroundColor: currentPage === i
                         ? colors.primary
                         : isLight ? Palette.slate300 : "rgba(255,255,255,0.18)",
-                      width: currentPage === i ? 14 : 5,
+                      width: currentPage === i ? 16 : 6,
                     },
                   ]}
                 />
@@ -659,7 +709,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   allDaySectionLabel: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: "700",
     textTransform: "uppercase",
     letterSpacing: 0.5,
@@ -679,7 +729,7 @@ const styles = StyleSheet.create({
     borderLeftWidth: 3,
   },
   allDayChipText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "600",
   },
   spatialCanvasWrapper: {
@@ -694,7 +744,7 @@ const styles = StyleSheet.create({
     borderRightWidth: 1,
   },
   timeLabelHeaderSpacer: {
-    height: 52,
+    height: 60,
     borderBottomWidth: 1,
   },
   timeLabelCell: {
@@ -703,7 +753,7 @@ const styles = StyleSheet.create({
     paddingLeft: 4,
   },
   timeLabelText: {
-    fontSize: 9.5,
+    fontSize: 10.5,
     letterSpacing: 0.1,
   },
   daysScrollCanvas: {
@@ -712,7 +762,7 @@ const styles = StyleSheet.create({
   },
   gridLinesOverlay: {
     position: "absolute",
-    top: 52,
+    top: 60,
     left: 0,
     right: 0,
     bottom: 0,
@@ -727,33 +777,33 @@ const styles = StyleSheet.create({
     borderRightWidth: 1,
   },
   colHeader: {
-    height: 52,
+    height: 60,
     alignItems: "center",
     justifyContent: "center",
     borderBottomWidth: 1,
-    gap: 1.5,
-    paddingVertical: 3,
+    gap: 2,
+    paddingVertical: 4,
   },
   colHeaderDayName: {
-    fontSize: 9,
+    fontSize: 10.5,
     fontWeight: "700",
     letterSpacing: 0.4,
   },
   colHeaderNumCircle: {
-    width: 20,
-    height: 20,
-    borderRadius: 6,
+    width: 22,
+    height: 22,
+    borderRadius: 7,
     alignItems: "center",
     justifyContent: "center",
   },
   colHeaderDayNum: {
-    fontSize: 10.5,
+    fontSize: 13,
   },
   openDayAffordance: {
     marginTop: -1,
   },
   openDayAffordanceText: {
-    fontSize: 7.5,
+    fontSize: 10.5,
     fontWeight: "700",
     letterSpacing: -0.1,
   },
@@ -793,12 +843,12 @@ const styles = StyleSheet.create({
     zIndex: 30,
   },
   weekDropGuideTime: {
-    fontSize: 8.5,
-    fontWeight: "800",
+    fontSize: 10.5,
+    fontWeight: "700",
     letterSpacing: 0.1,
   },
   weekDropGuideTitle: {
-    fontSize: 9.5,
+    fontSize: 12,
     fontWeight: "700",
   },
   canvasFooter: {
@@ -807,10 +857,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 6,
     borderTopWidth: 1,
-    borderTopColor: "rgba(0,0,0,0.06)",
   },
   swipeHintText: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: "500",
   },
   paginationDots: {
@@ -819,7 +868,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   pageDot: {
-    height: 5,
-    borderRadius: 2.5,
+    height: 6,
+    borderRadius: 3,
   },
 });

@@ -49,6 +49,7 @@ import { ProgressSection } from "@/features/profile/components/ProgressSection";
 import { ResourceSection } from "@/features/resources/components/ResourceSection";
 import { ChecklistSection } from "@/features/checklists/components/ChecklistSection";
 import { DateScopedSectionHeader } from "@/features/workspaces/components/DateScopedSectionHeader";
+import { TaskDateStrip } from "@/features/tasks/components/TaskDateStrip";
 import { EmptyState } from "@/shared/components/ui/EmptyState";
 import { WorkspaceEmptyState } from "@/features/workspaces/components/WorkspaceEmptyState";
 import { TaskFilterModal } from "@/features/tasks/components/TaskFilterModal";
@@ -710,6 +711,14 @@ export function WorkspacesScreen() {
                     );
                   })}
                 </View>
+
+                {/* Horizontal Date Strip (exact match to user design) */}
+                {state.workspaceSegment !== "resources" && (
+                  <TaskDateStrip
+                    selectedDate={state.selectedDate}
+                    onSelectDate={(dateKey) => state.setSelectedDate(dateKey)}
+                  />
+                )}
               </View>
             ) : (
               <View style={{ marginBottom: 4 }}>
@@ -825,6 +834,7 @@ export function WorkspacesScreen() {
                       selectedDate={state.selectedDate}
                       onSelectDate={(dateKey) => state.setSelectedDate(dateKey)}
                       onOpenDatePicker={() => setIsDatePickerVisible(true)}
+                      hideDateHeader={true}
                       completedCount={state.completedCount}
                       onClearCompleted={state.clearCompleted}
                       onToggleTodo={state.toggleTodo}
@@ -874,6 +884,7 @@ export function WorkspacesScreen() {
                       selectedDate={state.selectedDate}
                       onSelectDate={(dateKey) => state.setSelectedDate(dateKey)}
                       onOpenDatePicker={() => setIsDatePickerVisible(true)}
+                      hideDateHeader={true}
                       onToggleLinkResource={state.toggleLinkResource}
                       onToggleSelectItem={(id) => {
                         state.setSelectedItemIds((prev) => {
@@ -896,14 +907,6 @@ export function WorkspacesScreen() {
                 {/* Checklists Section */}
                 {state.workspaceSegment === "checklists" && (
                   <View style={{ gap: 10, paddingBottom: 24 }}>
-                    <DateScopedSectionHeader
-                      dateKey={state.selectedDate}
-                      onSelectDate={(dateKey) => state.setSelectedDate(dateKey)}
-                      onOpenDatePicker={() => setIsDatePickerVisible(true)}
-                      colors={colors}
-                      isDark={isDark}
-                      itemCount={filteredChecklists.length}
-                    />
                     {filteredChecklists.length === 0 ? (
                       activeChecklistCount === 0 ? (
                         <WorkspaceEmptyState
@@ -929,6 +932,7 @@ export function WorkspacesScreen() {
                     ) : (
                       <ChecklistSection
                         checklists={filteredChecklists}
+                        workspaces={state.workspaces}
                         colors={colors}
                         colorScheme={colorScheme}
                         selectedDateKey={state.selectedDate}

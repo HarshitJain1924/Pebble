@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useMemo } from "react";
 import { Palette } from "@/shared/constants/theme";
 import { View, StyleSheet, type ViewInstance } from "react-native";
 import { AppText as Text } from "@/shared/components/ui/AppText";
@@ -7,17 +7,18 @@ import { TimelineGrid } from "./TimelineGrid";
 import { TimelineItem } from "./TimelineItem";
 import { FreeTimeGap } from "./FreeTimeGap";
 import { CurrentTimeIndicator } from "./CurrentTimeIndicator";
-import {
-  processGapsLayout,
-  calculateTimeYCoordinate,
-} from "@/features/calendar/utils/timelineCollapsibleLayout";
+import { calculateTimeYCoordinate } from "@/features/calendar/utils/timelineCollapsibleLayout";
 
 interface DayPlannerViewProps {
   timelineGridRef: React.RefObject<ViewInstance | null>;
   onLayoutTimeline: () => void;
   filteredAllDayItems: any[];
   filteredTimedItems: any[];
-  freeTimeGaps: any[];
+  /** Gap layout is owned by useCalendarState so rendering and drag mapping agree. */
+  processedGaps: any[];
+  activeCollapsedGaps: any[];
+  timelineTotalHeight: number;
+  onToggleGapCollapse: (gapKey: string) => void;
   hasPendingItems: boolean;
   isViewingToday: boolean;
   currentTime: { hours: number; minutes: number };
@@ -43,7 +44,10 @@ export const DayPlannerView: React.FC<DayPlannerViewProps> = React.memo(({
   onLayoutTimeline,
   filteredAllDayItems,
   filteredTimedItems,
-  freeTimeGaps,
+  processedGaps,
+  activeCollapsedGaps,
+  timelineTotalHeight,
+  onToggleGapCollapse,
   hasPendingItems,
   isViewingToday,
   currentTime,
@@ -59,26 +63,6 @@ export const DayPlannerView: React.FC<DayPlannerViewProps> = React.memo(({
   colors,
   isLight,
 }) => {
-  // Ephemeral component state tracking which collapsible gaps the user has expanded
-  const [expandedGapKeys, setExpandedGapKeys] = useState<Set<string>>(() => new Set());
-
-  const handleToggleCollapse = useCallback((gapKey: string) => {
-    setExpandedGapKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(gapKey)) {
-        next.delete(gapKey);
-      } else {
-        next.add(gapKey);
-      }
-      return next;
-    });
-  }, []);
-
-  // Compute layout & coordinates for gaps and timeline items
-  const { processedGaps, activeCollapsedGaps, totalHeight } = useMemo(() => {
-    return processGapsLayout(freeTimeGaps, expandedGapKeys, 80);
-  }, [freeTimeGaps, expandedGapKeys]);
-
   const dragGuideLayout = useMemo(() => {
     if (!hoveredTargetTime && hoveredHour === null) return null;
     const startMinutes = hoveredTargetTime
@@ -122,7 +106,7 @@ export const DayPlannerView: React.FC<DayPlannerViewProps> = React.memo(({
       <View
         ref={timelineGridRef}
         onLayout={onLayoutTimeline}
-        style={[styles.timelineGridWrapper, { minHeight: totalHeight }]}
+        style={[styles.timelineGridWrapper, { minHeight: timelineTotalHeight }]}
       >
         {/* Background 24-Hour Grid with Collapsed Rows */}
         <TimelineGrid
@@ -157,7 +141,7 @@ export const DayPlannerView: React.FC<DayPlannerViewProps> = React.memo(({
               height={gap.height}
               isCollapsible={gap.isCollapsible}
               isCollapsed={gap.isCollapsed}
-              onToggleCollapse={handleToggleCollapse}
+              onToggleCollapse={onToggleGapCollapse}
               isViewingToday={isViewingToday}
               currentTime={currentTime}
               colors={colors}

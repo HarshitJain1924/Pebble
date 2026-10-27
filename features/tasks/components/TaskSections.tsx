@@ -45,6 +45,7 @@ interface TaskSectionsProps {
   onSaveEarlierForLater?: () => void;
   onSelectDate?: (dateKey: string) => void;
   onOpenDatePicker?: () => void;
+  hideDateHeader?: boolean;
 }
 
 const SECTION_ICON_SIZE = 14;
@@ -173,6 +174,7 @@ export function TaskSections({
   onSaveEarlierForLater,
   onSelectDate,
   onOpenDatePicker,
+  hideDateHeader = false,
 }: TaskSectionsProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
@@ -304,19 +306,21 @@ export function TaskSections({
   if (!hasAnyTasks) {
     return (
       <View style={[styles.listContent, { gap: 0, paddingBottom: 0 }]}>
-        <View style={sectionStyles.todaySectionContainer}>
-          <DateScopedSectionHeader
-            dateKey={selectedDate || todayKey}
-            onSelectDate={onSelectDate || (() => {})}
-            onOpenDatePicker={onOpenDatePicker}
-            colors={colors}
-            isDark={isDark}
-            progressText={undefined}
-            itemCount={0}
-            isExpanded={todayExpanded}
-            onToggleExpand={() => setTodayExpanded(!todayExpanded)}
-          />
-        </View>
+        {!hideDateHeader && (
+          <View style={sectionStyles.todaySectionContainer}>
+            <DateScopedSectionHeader
+              dateKey={selectedDate || todayKey}
+              onSelectDate={onSelectDate || (() => {})}
+              onOpenDatePicker={onOpenDatePicker}
+              colors={colors}
+              isDark={isDark}
+              progressText={undefined}
+              itemCount={0}
+              isExpanded={todayExpanded}
+              onToggleExpand={() => setTodayExpanded(!todayExpanded)}
+            />
+          </View>
+        )}
         <WorkspaceEmptyState
           context="tasks"
           searchQuery={searchQuery}
@@ -404,17 +408,19 @@ export function TaskSections({
 
     return (
       <View style={sectionStyles.todaySectionContainer}>
-        <DateScopedSectionHeader
-          dateKey={selectedDate || todayKey}
-          onSelectDate={onSelectDate || (() => {})}
-          onOpenDatePicker={onOpenDatePicker}
-          colors={colors}
-          isDark={isDark}
-          progressText={todayProgressText}
-          itemCount={totalTodayTasks}
-          isExpanded={todayExpanded}
-          onToggleExpand={() => setTodayExpanded(!todayExpanded)}
-        />
+        {!hideDateHeader && (
+          <DateScopedSectionHeader
+            dateKey={selectedDate || todayKey}
+            onSelectDate={onSelectDate || (() => {})}
+            onOpenDatePicker={onOpenDatePicker}
+            colors={colors}
+            isDark={isDark}
+            progressText={todayProgressText}
+            itemCount={totalTodayTasks}
+            isExpanded={todayExpanded}
+            onToggleExpand={() => setTodayExpanded(!todayExpanded)}
+          />
+        )}
 
         {todayExpanded && (
           <View>

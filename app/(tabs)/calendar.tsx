@@ -105,6 +105,10 @@ export default function CalendarScreen() {
     pendingChecklists,
     plannerHabits,
     freeTimeGaps,
+    processedGaps,
+    activeCollapsedGaps,
+    timelineTotalHeight,
+    toggleGapCollapse,
     planTask,
     planChecklist,
     planHabit,
@@ -137,12 +141,13 @@ export default function CalendarScreen() {
     const offset = calculateInitialTimelineScrollOffset({
       selectedDate,
       hourHeight: 80,
+      activeCollapsedGaps,
     });
 
     requestAnimationFrame(() => {
       scrollRef.current?.scrollTo({ y: offset, animated: false });
     });
-  }, [selectedDate, scrollRef]);
+  }, [selectedDate, scrollRef, activeCollapsedGaps]);
 
   // ─── Current Time Indicator (Live update every minute for Today) ──
   const isViewingToday = selectedDate === getDateKey();
@@ -465,7 +470,10 @@ export default function CalendarScreen() {
                 }}
                 filteredAllDayItems={filteredAllDayItems}
                 filteredTimedItems={filteredTimedItems}
-                freeTimeGaps={freeTimeGaps}
+                processedGaps={processedGaps}
+                activeCollapsedGaps={activeCollapsedGaps}
+                timelineTotalHeight={timelineTotalHeight}
+                onToggleGapCollapse={toggleGapCollapse}
                 hasPendingItems={pendingTasks.length > 0 || pendingChecklists.length > 0}
                 isViewingToday={isViewingToday}
                 currentTime={currentTime}

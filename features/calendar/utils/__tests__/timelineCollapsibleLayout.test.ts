@@ -1,11 +1,15 @@
 import {
   COLLAPSIBLE_GAP_THRESHOLD_MINUTES,
   COLLAPSED_GAP_HEIGHT,
+  DAY_MINUTES,
+  MIN_EXPANDED_SCALE_MINUTES,
   STANDARD_HOUR_HEIGHT,
   getGapKey,
   calculateTimeYCoordinate,
   getTotalTimelineHeight,
+  isDayEdgeGap,
   processGapsLayout,
+  resolveAutoCollapsedGaps,
   TimelineGap,
 } from "../timelineCollapsibleLayout";
 
@@ -20,10 +24,12 @@ describe("Timeline Collapsible Layout Mathematical & Structural Invariants", () 
 
     const { processedGaps, activeCollapsedGaps } = processGapsLayout(
       rawGaps,
-      new Set(),
-      STANDARD_HOUR_HEIGHT,
-      COLLAPSED_GAP_HEIGHT,
-      COLLAPSIBLE_GAP_THRESHOLD_MINUTES,
+      {},
+      {
+        hourHeight: STANDARD_HOUR_HEIGHT,
+        collapsedGapHeight: COLLAPSED_GAP_HEIGHT,
+        thresholdMinutes: COLLAPSIBLE_GAP_THRESHOLD_MINUTES,
+      },
     );
 
     expect(activeCollapsedGaps.length).toBe(0);
@@ -35,19 +41,35 @@ describe("Timeline Collapsible Layout Mathematical & Structural Invariants", () 
     });
   });
 
-  // Test 2: Large free gaps (>= 120 min) are classified as collapsible and collapsed by default
-  test("Large free gaps (>= 120 min) are collapsible and collapsed by default into COLLAPSED_GAP_HEIGHT", () => {
+  // Test 2: THE regression guard — an interior gap must never lose its real height.
+  // Collapsing time between two scheduled items made a 4h30m region of the day render
+  // 52px tall while a 2h meeting rendered 160px tall, so the day stopped being proportional.
+  test("Large interior gaps stay at true 80px/hour scale instead of collapsing", () => {
     const rawGaps: TimelineGap[] = [
-      { startMinutes: 570, durationMinutes: 270 }, // 9:30 AM to 2:00 PM (4h 30m = 270m)
-      { startMinutes: 900, durationMinutes: 300 }, // 3:00 PM to 8:00 PM (5h = 300m)
+      { startMinutes: 570, durationMinutes: 270 }, // 9:30 AM - 2:00 PM (interior)
+      { startMinutes: 900, durationMinutes: 300 }, // 3:00 PM - 8:00 PM (interior)
     ];
 
-    const { processedGaps, activeCollapsedGaps, totalHeight } = processGapsLayout(
-      rawGaps,
-      new Set(),
-      STANDARD_HOUR_HEIGHT,
-      COLLAPSED_GAP_HEIGHT,
-    );
+    const { processedGaps, activeCollapsedGaps, totalHeight } = processGapsLayout(rawGaps, {}, {});
+
+    expect(activeCollapsedGaps.length).toBe(0);
+    processedGaps.forEach((gap) => {
+      expect(gap.isCollapsed).toBe(false);
+      expect(gap.height).toBe((gap.durationMinutes / 60) * STANDARD_HOUR_HEIGHT);
+    });
+    expect(processedGaps[0].height).toBe(360);
+    expect(processedGaps[1].height).toBe(400);
+    expect(totalHeight).toBe(24 * 80);
+  });
+
+  // Test 3: Dead day edges are the only automatic collapse candidates
+  test("Dead day-edge gaps collapse while the day keeps at least the minimum true-scale time", () => {
+    const rawGaps: TimelineGap[] = [
+      { startMinutes: 0, durationMinutes: 420 }, // Midnight - 7:00 AM
+      { startMinutes: 1320, durationMinutes: 120 }, // 10:00 PM - midnight
+    ];
+
+    const { processedGaps, activeCollapsedGaps, totalHeight } = processGapsLayout(rawGaps, {}, {});
 
     expect(activeCollapsedGaps.length).toBe(2);
     processedGaps.forEach((gap) => {
@@ -56,36 +78,100 @@ describe("Timeline Collapsible Layout Mathematical & Structural Invariants", () 
       expect(gap.height).toBe(COLLAPSED_GAP_HEIGHT);
     });
 
-    // Uncollapsed total height would be 24 * 80 = 1920
-    // Collapsed savings:
-    // Gap 1: (270/60 * 80) - 52 = 360 - 52 = 308px saved
-    // Gap 2: (300/60 * 80) - 52 = 400 - 52 = 348px saved
-    // Expected totalHeight: 1920 - 308 - 348 = 1264px
-    expect(totalHeight).toBe(1264);
+    // 1920 - (560 - 52) - (160 - 52) = 1304
+    expect(totalHeight).toBe(1304);
+    expect(totalHeight).toBe(
+      getTotalTimelineHeight(activeCollapsedGaps, STANDARD_HOUR_HEIGHT, COLLAPSED_GAP_HEIGHT),
+    );
+    expect(DAY_MINUTES - (420 + 120)).toBeGreaterThanOrEqual(MIN_EXPANDED_SCALE_MINUTES);
   });
 
-  // Test 3: Expanding a collapsible gap restores the full 80px/hr geometry
-  test("Expanding a gap key in expandedGapKeys restores the full 80px/hour height for that gap", () => {
-    const gap1: TimelineGap = { startMinutes: 570, durationMinutes: 270 }; // 9:30 to 14:00 (270m)
-    const gapKey1 = getGapKey(gap1);
+  // Test 4: The NOW line must never sit inside a collapsed row
+  test("A day-edge gap containing the current time is never auto-collapsed", () => {
+    const rawGaps: TimelineGap[] = [
+      { startMinutes: 0, durationMinutes: 420 }, // midnight - 7:00 AM
+      { startMinutes: 1320, durationMinutes: 120 }, // 10:00 PM - midnight
+    ];
 
-    const expandedSet = new Set<string>([gapKey1]);
+    const withNowBeforeMidnight = resolveAutoCollapsedGaps(rawGaps, {
+      nowMinutes: 1380, // 11:00 PM, inside the trailing edge gap
+    });
+    expect(withNowBeforeMidnight).toHaveLength(1);
+    expect(withNowBeforeMidnight[0].startMinutes).toBe(0);
 
-    const { processedGaps, activeCollapsedGaps, totalHeight } = processGapsLayout(
-      [gap1],
-      expandedSet,
-      STANDARD_HOUR_HEIGHT,
-      COLLAPSED_GAP_HEIGHT,
-    );
+    const { activeCollapsedGaps } = processGapsLayout(rawGaps, {}, { nowMinutes: 1380 });
+    expect(activeCollapsedGaps).toHaveLength(1);
+    expect(activeCollapsedGaps[0].startMinutes).toBe(0);
+  });
 
-    expect(activeCollapsedGaps.length).toBe(0);
+  // Test 5: A nearly empty day keeps its full scale so it can actually be planned
+  test("A day with a single late item keeps the whole timeline at true scale", () => {
+    const rawGaps: TimelineGap[] = [
+      { startMinutes: 0, durationMinutes: 1320 }, // midnight - 10:00 PM
+      { startMinutes: 1380, durationMinutes: 60 }, // 11:00 PM - midnight
+    ];
+
+    const { activeCollapsedGaps, totalHeight } = processGapsLayout(rawGaps, {}, {});
+
+    // Collapsing 22h would leave only 2h at true scale, below the minimum.
+    expect(activeCollapsedGaps).toHaveLength(0);
+    expect(totalHeight).toBe(24 * 80);
+  });
+
+  // Test 6: A fully empty day is never folded into a single row
+  test("A whole-day free gap is not treated as a collapsible edge", () => {
+    const fullDay: TimelineGap = { startMinutes: 0, durationMinutes: DAY_MINUTES };
+
+    expect(isDayEdgeGap(fullDay)).toBe(false);
+
+    const { processedGaps, activeCollapsedGaps, totalHeight } = processGapsLayout([fullDay], {}, {});
+
+    expect(activeCollapsedGaps).toHaveLength(0);
     expect(processedGaps[0].isCollapsible).toBe(true);
     expect(processedGaps[0].isCollapsed).toBe(false);
-    expect(processedGaps[0].height).toBe((270 / 60) * 80); // 360px
-    expect(totalHeight).toBe(24 * 80); // 1920px
+    expect(totalHeight).toBe(24 * 80);
   });
 
-  // Test 4: Precise positioning for early morning (2 AM) and late night (11:30 PM) items
+  // Test 7: Explicit user overrides always beat the automatic default
+  test("Explicit overrides expand a collapsed edge and collapse an interior gap", () => {
+    const edgeGap: TimelineGap = { startMinutes: 0, durationMinutes: 420 };
+    const interiorGap: TimelineGap = { startMinutes: 570, durationMinutes: 270 };
+
+    const expandedEdge = processGapsLayout(
+      [edgeGap],
+      { expandedKeys: new Set([getGapKey(edgeGap)]) },
+      {},
+    );
+    expect(expandedEdge.activeCollapsedGaps).toHaveLength(0);
+    expect(expandedEdge.processedGaps[0].isCollapsed).toBe(false);
+    expect(expandedEdge.processedGaps[0].height).toBe((420 / 60) * 80);
+
+    const collapsedInterior = processGapsLayout(
+      [interiorGap],
+      { collapsedKeys: new Set([getGapKey(interiorGap)]) },
+      {},
+    );
+    expect(collapsedInterior.activeCollapsedGaps).toHaveLength(1);
+    expect(collapsedInterior.processedGaps[0].isCollapsed).toBe(true);
+    expect(collapsedInterior.processedGaps[0].height).toBe(COLLAPSED_GAP_HEIGHT);
+  });
+
+  // Test 8: A sub-threshold gap can never be collapsed, even with an override
+  test("A gap below the threshold ignores a collapsed override", () => {
+    const smallGap: TimelineGap = { startMinutes: 540, durationMinutes: 45 };
+
+    const { activeCollapsedGaps, processedGaps } = processGapsLayout(
+      [smallGap],
+      { collapsedKeys: new Set([getGapKey(smallGap)]) },
+      {},
+    );
+
+    expect(activeCollapsedGaps).toHaveLength(0);
+    expect(processedGaps[0].isCollapsible).toBe(false);
+    expect(processedGaps[0].isCollapsed).toBe(false);
+  });
+
+  // Test 9: Precise positioning for early morning (2 AM) and late night (11:30 PM) items
   test("2:00 AM and 11:30 PM scheduled items remain mathematically accurate with or without collapsed gaps", () => {
     const activeCollapsedGaps: TimelineGap[] = [
       { startMinutes: 540, durationMinutes: 300 }, // 9:00 AM to 2:00 PM (300m = 5h)
@@ -107,40 +193,7 @@ describe("Timeline Collapsible Layout Mathematical & Structural Invariants", () 
     expect(y1210AM - y1130PM).toBe((30 / 60) * 80); // exactly 40px for 30 minutes!
   });
 
-  // Test 5: Gap splitting logic when an item is scheduled into a collapsed gap
-  test("Scheduling a 90m task at 10:00 AM in a 09:00–14:00 gap splits the interval correctly", () => {
-    // Original free gap: 09:00 to 14:00 (540m to 840m)
-    // Scheduled item: 10:00 to 11:30 (600m to 690m, duration 90m)
-
-    // Derived split gaps:
-    const remainingGaps: TimelineGap[] = [
-      { startMinutes: 540, durationMinutes: 60 }, // 09:00 - 10:00 (60m free)
-      { startMinutes: 690, durationMinutes: 150 }, // 11:30 - 14:00 (150m free)
-    ];
-
-    const { processedGaps, activeCollapsedGaps } = processGapsLayout(
-      remainingGaps,
-      new Set(),
-      STANDARD_HOUR_HEIGHT,
-      COLLAPSED_GAP_HEIGHT,
-    );
-
-    // Gap 1 (60m < 120m) is NOT collapsible
-    expect(processedGaps[0].startMinutes).toBe(540);
-    expect(processedGaps[0].durationMinutes).toBe(60);
-    expect(processedGaps[0].isCollapsible).toBe(false);
-    expect(processedGaps[0].isCollapsed).toBe(false);
-
-    // Gap 2 (150m >= 120m) IS collapsible and collapsed
-    expect(processedGaps[1].startMinutes).toBe(690);
-    expect(processedGaps[1].durationMinutes).toBe(150);
-    expect(processedGaps[1].isCollapsible).toBe(true);
-    expect(processedGaps[1].isCollapsed).toBe(true);
-    expect(activeCollapsedGaps.length).toBe(1);
-    expect(activeCollapsedGaps[0].startMinutes).toBe(690);
-  });
-
-  // Test 6: Current Time coordinate interpolation inside a collapsed gap
+  // Test 10: Current Time coordinate interpolation inside a collapsed gap
   test("Current Time coordinate inside a collapsed gap interpolates within the collapsed height", () => {
     const activeCollapsedGaps: TimelineGap[] = [
       { startMinutes: 540, durationMinutes: 300 }, // 09:00 (540m) to 14:00 (840m), collapsed to 52px

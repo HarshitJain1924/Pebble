@@ -64,7 +64,14 @@
       "expo-image",
       "expo-sharing",
       "expo-web-browser",
-      "expo-status-bar"
+      "expo-status-bar",
+      [
+        "expo-navigation-bar",
+        {
+          "enforceContrast": false
+        }
+      ],
+      "react-native-liquid-glassmorphism"
     ],
     "experiments": {
       "typedRoutes": true,

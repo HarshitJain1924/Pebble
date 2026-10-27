@@ -101,7 +101,7 @@ export const WeekTimelineItem: React.FC<WeekTimelineItemProps> = React.memo(({
           <View style={styles.titleRow}>
             <Feather
               name={config.icon}
-              size={9.5}
+              size={11}
               color={accent}
               style={styles.icon}
             />
@@ -124,7 +124,7 @@ export const WeekTimelineItem: React.FC<WeekTimelineItemProps> = React.memo(({
             <View style={styles.titleRow}>
               <Feather
                 name={config.icon}
-                size={10}
+                size={11}
                 color={accent}
                 style={styles.icon}
               />
@@ -224,17 +224,17 @@ const styles = StyleSheet.create({
     marginTop: 0.5,
   },
   titleCompact: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: "700",
     letterSpacing: -0.1,
     flex: 1,
   },
   title: {
-    fontSize: 10.5,
+    fontSize: 11.5,
     fontWeight: "700",
     letterSpacing: -0.1,
     flex: 1,
-    lineHeight: 13,
+    lineHeight: 14,
   },
   progressBadge: {
     paddingHorizontal: 3.5,
@@ -243,11 +243,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   progressBadgeText: {
-    fontSize: 8.5,
-    fontWeight: "800",
+    fontSize: 9.5,
+    fontWeight: "700",
   },
   timeText: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: "600",
     letterSpacing: 0.1,
   },
@@ -257,7 +257,7 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   metaSubtext: {
-    fontSize: 8.5,
+    fontSize: 10,
     fontWeight: "500",
   },
   priorityPill: {
@@ -272,7 +272,7 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.red500,
   },
   priorityText: {
-    fontSize: 8,
+    fontSize: 9.5,
     fontWeight: "700",
     color: Palette.red500,
   },

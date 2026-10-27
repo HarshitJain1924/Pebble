@@ -52,7 +52,11 @@ import {
   DraggedItemTimeTarget,
 } from "@/features/calendar/utils/timelineDrag";
 import {
+  COLLAPSIBLE_GAP_THRESHOLD_MINUTES,
+  calculateTimeYCoordinate,
+  getGapKey,
   processGapsLayout,
+  resolveAutoCollapsedGaps,
   TimelineGap,
 } from "@/features/calendar/utils/timelineCollapsibleLayout";
 import {
@@ -102,6 +106,8 @@ export interface InitialTimelineScrollOptions {
   currentHour?: number;
   hourHeight?: number;
   headerOffset?: number;
+  /** Currently collapsed gaps, so the anchor lands on real rendered geometry. */
+  activeCollapsedGaps?: TimelineGap[];
 }
 
 /**
@@ -112,6 +118,8 @@ export interface InitialTimelineScrollOptions {
  *    with 1 hour of visual headroom (Math.max(0, currentHour - 1)).
  * 2. If viewing Today and currentHour < 7 (early morning): falls back to 7:00 AM.
  * 3. If viewing a non-today date: falls back to 7:00 AM.
+ * 4. The target hour is resolved through the collapsed-gap geometry, because any
+ *    collapsed day-edge gap shifts every coordinate below it.
  */
 export function calculateInitialTimelineScrollOffset(
   options: InitialTimelineScrollOptions,
@@ -122,6 +130,7 @@ export function calculateInitialTimelineScrollOffset(
     currentHour = new Date().getHours(),
     hourHeight = 80,
     headerOffset = 0,
+    activeCollapsedGaps = [],
   } = options;
 
   const isToday = selectedDate === currentDate;
@@ -135,7 +144,13 @@ export function calculateInitialTimelineScrollOffset(
     }
   }
 
-  return Math.max(0, targetHour * hourHeight + headerOffset);
+  const targetY = calculateTimeYCoordinate(
+    targetHour * 60,
+    activeCollapsedGaps,
+    hourHeight,
+  );
+
+  return Math.max(0, targetY + headerOffset);
 }
 
 /**
@@ -820,6 +835,76 @@ export function useCalendarState() {
     return gaps;
   }, [timelineItems]);
 
+  // ─── Free Time Collapse State (single source of truth) ──────────
+  // The rendered gaps and the drag/tap → time mapping must agree on collapsed
+  // geometry, otherwise dropping an item lands at a time the user never saw.
+  const [expandedGapKeys, setExpandedGapKeys] = useState<Set<string>>(() => new Set());
+  const [collapsedGapKeys, setCollapsedGapKeys] = useState<Set<string>>(() => new Set());
+
+  const isViewingToday = selectedDate === getDateKey();
+  const nowMinutes = isViewingToday
+    ? (() => {
+        const clock = new Date();
+        return clock.getHours() * 60 + clock.getMinutes();
+      })()
+    : null;
+
+  const autoCollapsedGapKeys = useMemo(
+    () =>
+      new Set(
+        resolveAutoCollapsedGaps(freeTimeGaps, { nowMinutes }).map(getGapKey),
+      ),
+    [freeTimeGaps, nowMinutes],
+  );
+
+  const gapLayout = useMemo(
+    () =>
+      processGapsLayout(
+        freeTimeGaps,
+        { expandedKeys: expandedGapKeys, collapsedKeys: collapsedGapKeys },
+        { hourHeight: 80, nowMinutes },
+      ),
+    [freeTimeGaps, expandedGapKeys, collapsedGapKeys, nowMinutes],
+  );
+
+  const processedGaps = gapLayout.processedGaps;
+  const activeCollapsedGaps = gapLayout.activeCollapsedGaps;
+  const timelineTotalHeight = gapLayout.totalHeight;
+
+  const activeCollapsedGapsRef = useRef<TimelineGap[]>([]);
+  useEffect(() => {
+    activeCollapsedGapsRef.current = activeCollapsedGaps;
+  }, [activeCollapsedGaps]);
+
+  const toggleGapCollapse = useCallback(
+    (gapKey: string) => {
+      const gap = freeTimeGaps.find(
+        (candidate: TimelineGap) => getGapKey(candidate) === gapKey,
+      );
+      if (!gap || gap.durationMinutes < COLLAPSIBLE_GAP_THRESHOLD_MINUTES) return;
+
+      const defaultCollapsed = autoCollapsedGapKeys.has(gapKey);
+      const isCollapsed =
+        collapsedGapKeys.has(gapKey) ||
+        (!expandedGapKeys.has(gapKey) && defaultCollapsed);
+      const shouldCollapse = !isCollapsed;
+
+      setExpandedGapKeys((prev) => {
+        const next = new Set(prev);
+        if (shouldCollapse) next.delete(gapKey);
+        else next.add(gapKey);
+        return next;
+      });
+      setCollapsedGapKeys((prev) => {
+        const next = new Set(prev);
+        if (shouldCollapse) next.add(gapKey);
+        else next.delete(gapKey);
+        return next;
+      });
+    },
+    [freeTimeGaps, autoCollapsedGapKeys, expandedGapKeys, collapsedGapKeys],
+  );
+
   const planTask = useCallback(
     async (
       taskId: string,
@@ -1205,14 +1290,6 @@ export function useCalendarState() {
   useEffect(() => {
     calendarViewModeRef.current = calendarViewMode;
   }, [calendarViewMode]);
-
-  const activeCollapsedGaps = useMemo(() => {
-    return processGapsLayout(freeTimeGaps, new Set(), 80).activeCollapsedGaps;
-  }, [freeTimeGaps]);
-  const activeCollapsedGapsRef = useRef<TimelineGap[]>([]);
-  useEffect(() => {
-    activeCollapsedGapsRef.current = activeCollapsedGaps;
-  }, [activeCollapsedGaps]);
 
   const handleDragStart = useCallback(
     (item: any, absoluteX: number, absoluteY: number, grabOffsetY?: number) => {
@@ -1835,6 +1912,10 @@ export function useCalendarState() {
     pendingChecklists,
     plannerHabits,
     freeTimeGaps,
+    processedGaps,
+    activeCollapsedGaps,
+    timelineTotalHeight,
+    toggleGapCollapse,
     planTask,
     planChecklist,
     planHabit,

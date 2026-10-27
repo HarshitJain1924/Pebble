@@ -5,6 +5,7 @@ import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Colors, Palette } from "@/shared/constants/theme";
 import { Spacing } from "@/shared/constants/spacing";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import { LiquidGlassSurface } from "@/shared/components/ui/LiquidGlassSurface";
 
 export type DetailActionTone = "primary" | "secondary" | "danger";
 
@@ -21,6 +22,7 @@ export interface DetailAction {
 export interface DetailActionsProps {
   actions: DetailAction[];
   style?: StyleProp<ViewStyle>;
+  glass?: boolean;
 }
 
 /**
@@ -28,7 +30,7 @@ export interface DetailActionsProps {
  * with primary / secondary / danger tones. Entity-agnostic — callers supply the
  * actions. All interactive targets honor the 44px minimum touch target.
  */
-export const DetailActions: React.FC<DetailActionsProps> = ({ actions, style }) => {
+export const DetailActions: React.FC<DetailActionsProps> = ({ actions, style, glass }) => {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
 
@@ -39,6 +41,49 @@ export const DetailActions: React.FC<DetailActionsProps> = ({ actions, style }) 
         const isPrimary = tone === "primary";
         const isDanger = tone === "danger";
         const labelColor = isPrimary || isDanger ? Palette.white : colors.text;
+
+        if (glass && !isPrimary && !isDanger) {
+          return (
+            <Pressable
+              key={action.key}
+              onPress={() => {
+                if (!action.disabled) action.onPress();
+              }}
+              disabled={action.disabled}
+              style={({ pressed }) => [
+                { flex: 1 },
+                pressed && !action.disabled && { opacity: 0.8 },
+                action.disabled && styles.disabled,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={action.accessibilityLabel ?? action.label}
+              accessibilityState={{ disabled: !!action.disabled }}
+            >
+              <LiquidGlassSurface
+                borderRadius={14}
+                style={[
+                  styles.button,
+                  {
+                    backgroundColor: "transparent",
+                    borderWidth: StyleSheet.hairlineWidth,
+                    borderColor: "rgba(255, 255, 255, 0.16)",
+                  },
+                ]}
+                tintColor={
+                  colorScheme === "light"
+                    ? "rgba(0,0,0,0.03)"
+                    : "rgba(255, 255, 255, 0.08)"
+                }
+                intensity={50}
+              >
+                {action.icon != null && <View style={styles.iconSlot}>{action.icon}</View>}
+                <Text style={[styles.label, { color: labelColor }]} numberOfLines={1}>
+                  {action.label}
+                </Text>
+              </LiquidGlassSurface>
+            </Pressable>
+          );
+        }
 
         return (
           <Pressable
@@ -83,13 +128,14 @@ const styles = StyleSheet.create({
   button: {
     flex: 1,
     minHeight: 44,
-    borderRadius: 22,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: 14,
     borderWidth: 1,
-    paddingHorizontal: Spacing.lg,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: Spacing.sm,
+    gap: Spacing.xs,
   },
   iconSlot: {
     alignItems: "center",
@@ -97,9 +143,9 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 14,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   disabled: {
-    opacity: 0.45,
+    opacity: 0.4,
   },
 });

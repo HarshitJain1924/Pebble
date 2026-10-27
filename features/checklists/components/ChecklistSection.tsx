@@ -16,6 +16,7 @@ interface ChecklistSectionProps {
   /** Date the section represents. Completion reads/writes target this key. */
   selectedDateKey?: string;
   allResources?: any[];
+  workspaces?: any[];
   onUpdateChecklist: (updated: Checklist) => void;
   onToggleChecklistItem?: (
     checklist: Checklist,
@@ -38,6 +39,7 @@ export const ChecklistSection: React.FC<ChecklistSectionProps> = ({
   colorScheme,
   selectedDateKey,
   allResources = [],
+  workspaces = [],
   onUpdateChecklist,
   onToggleChecklistItem,
   onToggleAllChecklistItems,
@@ -141,6 +143,7 @@ export const ChecklistSection: React.FC<ChecklistSectionProps> = ({
           onDeleteChecklist={onDeleteChecklist}
           onDuplicateChecklist={onDuplicateChecklist}
           onRenameChecklist={onRenameChecklist}
+          workspaceName={workspaces?.find((w) => w.id === chk.workspaceId)?.name}
         />
       </SwipeableCard>
     );

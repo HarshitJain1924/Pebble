@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import * as SplashScreen from "expo-splash-screen";
 import * as SystemUI from "expo-system-ui";
-import * as NavigationBar from "expo-navigation-bar";
+import { NavigationBar } from "expo-navigation-bar";
 import { Platform } from "react-native";
 import { useFonts, Outfit_400Regular, Outfit_500Medium, Outfit_600SemiBold, Outfit_700Bold } from "@expo-google-fonts/outfit";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -173,7 +173,8 @@ export default function RootLayout() {
               </Stack>
               {/* NotificationListener registers listeners and shows in-app banners when notifications arrive */}
               <NotificationListener />
-              <StatusBar style="auto" />
+              <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
+              <NavigationBar style={colorScheme === "dark" ? "light" : "dark"} />
             </UndoProvider>
           </BottomSheetModalProvider>
         </ThemeProvider>

@@ -120,3 +120,29 @@ for (const file of schedulerFiles) {
   }
 }
 
+// 5. Patch ExpoApplication to use requireOptionalNativeModule to prevent startup crash when native module is missing
+const applicationFiles = [
+  path.join(__dirname, '..', 'node_modules', 'expo-application', 'build', 'ExpoApplication.js'),
+  path.join(__dirname, '..', 'node_modules', 'expo-application', 'src', 'ExpoApplication.ts'),
+];
+
+for (const file of applicationFiles) {
+  if (fs.existsSync(file)) {
+    let content = fs.readFileSync(file, 'utf8');
+    if (content.includes("requireNativeModule('ExpoApplication')")) {
+      content = content
+        .replace(
+          "import { requireNativeModule } from 'expo';",
+          "import { requireOptionalNativeModule } from 'expo';"
+        )
+        .replace(
+          "export default requireNativeModule('ExpoApplication');",
+          "export default requireOptionalNativeModule('ExpoApplication') ?? {};"
+        );
+      fs.writeFileSync(file, content, 'utf8');
+      console.log(`[patch-expo-notifications] Patched ${path.basename(file)} to use requireOptionalNativeModule.`);
+    }
+  }
+}
+
+

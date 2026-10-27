@@ -1,11 +1,8 @@
 import React, { useState, useMemo } from "react";
-import { Palette } from "@/shared/constants/theme";
 import {
   View,
   StyleSheet,
   Alert,
-  Modal,
-  ScrollView,
   TouchableOpacity,
   Platform,
 } from "react-native";
@@ -15,33 +12,25 @@ import { AnimatedOverlay } from "@/shared/components/ui/AnimatedOverlay";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import PressableScale from "@/shared/components/ui/PressableScale";
-import { ROW_SPEC } from "@/shared/constants/rowSpec";
-import {
-  EntityItem,
-  EntityMetaRow,
-  type EntityMetaPart,
-  resolveEntityCategoryPresentation,
-  resolveResourceIconName,
-} from "@/features/items";
+import { Palette } from "@/shared/constants/theme";
 import { type Checklist } from "@/shared/types/domain.types";
 import {
-  getChecklistItemCompletedForDate,
   getChecklistOccurrenceStats,
-  getNextIncompleteChecklistItem,
 } from "@/shared/utils/domain-selectors";
 import { getTodayDateKey } from "@/shared/utils/date-key";
-import { isRecurringOccurrenceForDate } from "@/services/scheduling/recurrence.service";
-import { getChecklistMetadataParts } from "@/features/checklists/utils/checklist-formatting";
+import { isRecurringOccurrenceForDate, getRecurrenceLabel } from "@/services/scheduling/recurrence.service";
+import { CATEGORY_OPTIONS } from "@/features/details/options";
+import { getChecklistColor } from "../utils/checklist-colors";
 
 export interface ChecklistProgressCardProps {
   checklist: Checklist;
-  colors: any;
-  colorScheme: "light" | "dark" | null;
+  colors?: any;
+  colorScheme?: "light" | "dark" | null;
   /** Date this row represents. Completion reads/writes target this key. */
   selectedDateKey?: string;
-  isExpanded: boolean;
-  onToggleExpand: () => void;
-  onToggleChecklist: () => void; // completes or uncompletes all items
+  isExpanded?: boolean;
+  onToggleExpand?: () => void;
+  onToggleChecklist?: () => void;
   /** Canonical occurrence-aware item toggle (recurring checklists). */
   onToggleChecklistItem?: (
     checklist: Checklist,
@@ -53,35 +42,39 @@ export interface ChecklistProgressCardProps {
     checklist: Checklist,
     referenceDateKey?: string,
   ) => void;
-  onUpdateChecklist: (updated: Checklist) => void;
+  onUpdateChecklist?: (updated: Checklist) => void;
   onToggleLinkResource?: (itemId: string, itemType: "checklist", resourceId: string) => void;
   allResources?: any[];
   onDeleteChecklist?: (id: string) => void;
   onDuplicateChecklist?: (chk: Checklist) => void;
   onRenameChecklist?: (chk: Checklist) => void;
+  workspaceName?: string;
 }
+
+const formatTimeDisplay = (timeStr?: string): string => {
+  if (!timeStr) return "";
+  const [hStr, mStr] = timeStr.split(":");
+  const h = parseInt(hStr, 10);
+  const m = parseInt(mStr || "0", 10);
+  if (isNaN(h)) return timeStr;
+  const period = h >= 12 ? "PM" : "AM";
+  const displayHour = h % 12 === 0 ? 12 : h % 12;
+  const displayMin = String(m).padStart(2, "0");
+  return `${displayHour}:${displayMin} ${period}`;
+};
 
 export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
   checklist,
   colors,
   colorScheme,
   selectedDateKey,
-  isExpanded,
-  onToggleExpand,
-  onToggleChecklist,
-  onToggleChecklistItem,
-  onToggleAllChecklistItems,
   onUpdateChecklist,
-  onToggleLinkResource,
-  allResources = [],
   onDeleteChecklist,
   onDuplicateChecklist,
-  onRenameChecklist,
+  workspaceName,
 }) => {
   const isLight = colorScheme === "light";
-  const isDark = !isLight;
   const router = useRouter();
-  const [showLinkSelector, setShowLinkSelector] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
 
   const handleShowOverflowMenu = () => {
@@ -89,17 +82,13 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
     setMenuVisible(true);
   };
 
-  // The row reads and writes the occurrence of the day the list represents.
-  // A recurring checklist that is not an occurrence of that day has no
-  // occurrence date here (the list is date-scoped, so it is not rendered in
-  // that case) — we never substitute a different day's occurrence.
   const referenceDateKey = selectedDateKey || getTodayDateKey();
   const occurrenceDateKey =
     checklist.recurrence && isRecurringOccurrenceForDate(checklist, referenceDateKey)
       ? referenceDateKey
       : undefined;
 
-  const handleEditPress = () => {
+  const handleCardPress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     const dateParam = occurrenceDateKey ? `&date=${occurrenceDateKey}` : "";
     router.push(`/checklist-details?id=${checklist.id}${dateParam}`);
@@ -117,392 +106,98 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
   const totalCount = stats.total;
   const isAllCompleted = stats.isCompleted;
   const progress = totalCount > 0 ? completedCount / totalCount : 0;
+  const progressPercent = Math.round(progress * 100);
 
-  // Derive first incomplete item for collapsed preview
-  const firstIncompleteItem = useMemo(() => {
-    return getNextIncompleteChecklistItem(checklist, occurrenceDateKey);
-  }, [checklist, occurrenceDateKey]);
+  // Priority label
+  const priorityLabel = useMemo(() => {
+    if (!checklist.priority || checklist.priority === "none") return "Normal";
+    return checklist.priority.charAt(0).toUpperCase() + checklist.priority.slice(1);
+  }, [checklist.priority]);
 
-  const linkedResourceIds = checklist.resourceIds || [];
-  const linkedCount = linkedResourceIds.length;
+  // Category label
+  const categoryLabel = useMemo(() => {
+    if (!checklist.categoryId) return undefined;
+    const meta = CATEGORY_OPTIONS.find((c) => c.key === checklist.categoryId);
+    return meta?.label || checklist.categoryId.charAt(0).toUpperCase() + checklist.categoryId.slice(1);
+  }, [checklist.categoryId]);
 
-  const linkedResources = useMemo(() => {
-    return linkedResourceIds
-      .map((id: string) => allResources.find((r) => r.id === id))
-      .filter(Boolean);
-  }, [linkedResourceIds, allResources]);
+  // Workspace label
+  const workspaceLabel = useMemo(() => {
+    const raw = workspaceName || "Inbox";
+    return raw.charAt(0).toUpperCase() + raw.slice(1);
+  }, [workspaceName]);
 
-  const handleToggleItem = (itemId: string) => {
-    if (onToggleChecklistItem) {
-      onToggleChecklistItem(checklist, itemId, referenceDateKey);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-      return;
+  // Schedule / Timing row text
+  const timingText = useMemo(() => {
+    if (checklist.schedule?.startTime) {
+      const start = formatTimeDisplay(checklist.schedule.startTime);
+      if (checklist.schedule.endTime) {
+        return `${start} - ${formatTimeDisplay(checklist.schedule.endTime)}`;
+      }
+      return start;
     }
-    // Never mutate master template items for recurring checklists when occurrence callback is missing
     if (checklist.recurrence) {
-      console.warn("Cannot toggle recurring checklist item without occurrence context");
-      return;
+      return getRecurrenceLabel(checklist.recurrence) || "Recurring";
     }
-    const updated = {
-      ...checklist,
-      items: checklist.items.map((it) =>
-        it.id === itemId
-          ? {
-              ...it,
-              completed: !it.completed,
-              completedAt: !it.completed ? Date.now() : undefined,
-            }
-          : it
-      ),
-    };
-    onUpdateChecklist(updated);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-  };
+    if (checklist.schedule?.date) {
+      return checklist.schedule.date;
+    }
+    return `${completedCount} of ${totalCount} completed`;
+  }, [checklist.schedule, checklist.recurrence, completedCount, totalCount]);
 
-  // Primary resource icon derived from first linked resource
-  const resourceIconName = useMemo(() => {
-    return resolveResourceIconName(linkedResources?.[0]);
-  }, [linkedResources]);
-
-  const checklistMetaParts = useMemo<EntityMetaPart[]>(() => {
-    return getChecklistMetadataParts(checklist, {
-      referenceDate: occurrenceDateKey ?? referenceDateKey,
-      isCompleted: isAllCompleted,
-      completedCount,
-      totalCount,
-      linkedCount,
-      resourceIconName,
-      onToggleExpand,
-      onOpenLinkSelector: () => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-        setShowLinkSelector(true);
-      },
-      colors: {
-        textMuted: colors.textMuted,
-        primary: colors.primary,
-        error: colors.error,
-      },
-    });
-  }, [
-    checklist,
-    occurrenceDateKey,
-    referenceDateKey,
-    isAllCompleted,
-    completedCount,
-    totalCount,
-    linkedCount,
-    resourceIconName,
-    onToggleExpand,
-    colors.textMuted,
-    colors.primary,
-    colors.error,
-  ]);
-
-  // Category atmosphere resolution (small inline icon before title)
-  const categoryPresentation = useMemo(() => {
-    return resolveEntityCategoryPresentation(
-      {
-        categoryId: checklist?.categoryId,
-        title: checklist.title,
-        type: "checklist",
-      },
-      isDark,
-    );
-  }, [checklist?.categoryId, checklist.title, isDark]);
+  const cardColor = useMemo(
+    () => getChecklistColor(checklist.categoryId),
+    [checklist.categoryId],
+  );
 
   return (
-    <EntityItem
-      priority={checklist.priority}
-      category={categoryPresentation}
-      dimmed={isAllCompleted}
-      colorScheme={colorScheme}
-      testIDPrefix="checklist-category"
-      alignLeading="flex-start"
-      leadingControl={
-        <PressableScale
-          onPress={
-            onToggleAllChecklistItems
-              ? () => onToggleAllChecklistItems(checklist, referenceDateKey)
-              : onToggleChecklist
-          }
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked: isAllCompleted }}
-          accessibilityLabel={`Mark all items in checklist ${checklist.title} as ${isAllCompleted ? "incomplete" : "completed"}`}
-          style={styles.cardCheckbox}
-          hitSlop={{ top: 13, bottom: 13, left: 13, right: 13 }}
-        >
-          <Feather
-            name={isAllCompleted ? "check-circle" : "circle"}
-            size={18}
-            color={isAllCompleted ? colors.primary : colors.textMuted}
-          />
-        </PressableScale>
-      }
-      title={
-        <PressableScale
-          onPress={handleEditPress}
-          accessibilityRole="button"
-          accessibilityLabel={`Edit checklist ${checklist.title}`}
-          style={styles.titlePress}
-        >
-          <Text
-            style={[
-              styles.title,
-              {
-                fontSize: ROW_SPEC.type.title,
-                fontWeight: ROW_SPEC.type.titleWeight,
-                color: isAllCompleted ? colors.textMuted : colors.text,
-                textDecorationLine: isAllCompleted ? "line-through" : "none",
-              },
-            ]}
-            numberOfLines={1}
-          >
-            {checklist.title}
-          </Text>
-        </PressableScale>
-      }
-      metadata={
-        <View style={styles.progressRowPress}>
-          <PressableScale
-            onPress={onToggleExpand}
-            accessibilityRole="button"
-            accessibilityState={{ expanded: isExpanded }}
-            accessibilityLabel={`Checklist progress: ${completedCount} of ${totalCount} completed. Tap to ${isExpanded ? "collapse" : "expand"}`}
-          >
-            <View
-              style={[
-                styles.progressTrack,
-                { backgroundColor: isLight ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.08)" },
-              ]}
-            >
-              <View
-                style={[
-                  styles.progressBar,
-                  { width: `${progress * 100}%`, backgroundColor: colors.primary },
-                ]}
-              />
-            </View>
-          </PressableScale>
-
-          <EntityMetaRow
-            parts={checklistMetaParts}
-            dotColor={colors.textMuted}
-            style={styles.metricsMetaRow}
-          />
-        </View>
-      }
-      centerContent={
-        !isExpanded && firstIncompleteItem ? (
-          <View testID={`checklist-collapsed-preview-${checklist.id}`} style={styles.previewContainer}>
-            <PressableScale
-              testID={`checklist-preview-checkbox-${firstIncompleteItem.id}`}
-              onPress={() => handleToggleItem(firstIncompleteItem.id)}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: false }}
-              accessibilityLabel={`Mark ${firstIncompleteItem.title} as completed`}
-              style={styles.previewCheckbox}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Feather name="circle" size={15} color={colors.textMuted} />
-            </PressableScale>
-            <PressableScale
-              testID={`checklist-preview-title-${firstIncompleteItem.id}`}
-              onPress={onToggleExpand}
-              accessibilityRole="button"
-              accessibilityLabel={`Expand checklist ${checklist.title}`}
-              style={styles.previewTextPress}
-            >
-              <Text
-                style={[styles.previewText, { color: colors.text }]}
-                numberOfLines={1}
-              >
-                {firstIncompleteItem.title}
-              </Text>
-            </PressableScale>
-          </View>
-        ) : null
-      }
-      trailingActions={
-        <View style={styles.actionsCluster}>
-          {/* Card Contextual Overflow Menu Button */}
-          <PressableScale
-            onPress={handleShowOverflowMenu}
-            accessibilityRole="button"
-            accessibilityLabel={`More options for checklist ${checklist.title}`}
-            style={styles.moreBtn}
-            hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
-          >
-            <Feather name="more-horizontal" size={15} color={colors.textMuted} />
-          </PressableScale>
-
-          {/* Chevron Expand Button */}
-          <PressableScale
-            onPress={onToggleExpand}
-            accessibilityRole="button"
-            accessibilityState={{ expanded: isExpanded }}
-            accessibilityLabel={
-              isExpanded
-                ? `Collapse checklist ${checklist.title}`
-                : `Expand checklist ${checklist.title}`
-            }
-            style={styles.chevronBtn}
-            hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
-          >
-            <Feather
-              name={isExpanded ? "chevron-up" : "chevron-down"}
-              size={15}
-              color={colors.textMuted}
-            />
-          </PressableScale>
-        </View>
-      }
-    >
-      {/* Expanded State: Checklist Items List */}
-      {isExpanded && (
-        <View style={styles.expandedContent}>
-          {/* Subtle separator line */}
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-          {/* Checklist Items List */}
-          <View style={styles.checklistItemsWrapper}>
-            {checklist.items.map((item) => {
-              const isItemCompleted = getChecklistItemCompletedForDate(
-                checklist,
-                item.id,
-                occurrenceDateKey,
-              );
-              return (
-              <View key={item.id} testID={`checklist-item-${item.id}`} style={styles.checkItemRow}>
-                <PressableScale
-                  onPress={() => handleToggleItem(item.id)}
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: isItemCompleted }}
-                  accessibilityLabel={`Mark ${item.title} as ${isItemCompleted ? "incomplete" : "completed"}`}
-                  style={{ flex: 1 }}
-                  contentStyle={styles.checkItemLeft}
-                >
-                  <Feather
-                    name={isItemCompleted ? "check-circle" : "circle"}
-                    size={16}
-                    color={isItemCompleted ? colors.primary : colors.textMuted}
-                  />
-                  <Text
-                    style={[
-                      styles.checkItemTitle,
-                      {
-                        color: isItemCompleted ? colors.textMuted : colors.text,
-                        textDecorationLine: isItemCompleted ? "line-through" : "none",
-                      },
-                    ]}
-                  >
-                    {item.title}
-                  </Text>
-                </PressableScale>
-              </View>
-              );
-            })}
-          </View>
-        </View>
-      )}
-
-      {/* Resource Link Selector Modal */}
-      <Modal
-        visible={showLinkSelector}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowLinkSelector(false)}
+    <>
+      <PressableScale
+        testID={`checklist-card-${checklist.id}`}
+        onPress={handleCardPress}
+        onLongPress={handleShowOverflowMenu}
+        scaleTo={0.98}
+        accessibilityRole="button"
+        accessibilityLabel={`Edit checklist ${checklist.title}`}
+        style={[styles.cardContainer, { backgroundColor: cardColor }]}
       >
-        <View
-          style={{
-            flex: 1,
-            backgroundColor: "rgba(0,0,0,0.5)",
-            justifyContent: "center",
-            alignItems: "center",
-            padding: 20,
-          }}
-        >
-          <View
-            style={{
-              width: "90%",
-              maxHeight: "70%",
-              backgroundColor: colors.card,
-              borderRadius: 24,
-              borderColor: colors.border,
-              borderWidth: 1.5,
-              padding: 20,
-              gap: 12,
-            }}
-          >
-            <Text style={{ fontSize: 16, fontWeight: "800", color: colors.text }}>
-              Link Resources
-            </Text>
-            <Text style={{ fontSize: 11, color: colors.textMuted, marginTop: -4 }}>
-              Select resources to link to this checklist:
-            </Text>
-
-            {allResources.length === 0 ? (
-              <View style={{ paddingVertical: 40, alignItems: "center" }}>
-                <Text style={{ color: colors.textMuted, fontSize: 13 }}>No resources in this workspace.</Text>
+        {/* Top Row: Outline Pills (Priority, Category, Workspace) and Progress Percentage */}
+        <View style={styles.topRow}>
+          <View style={styles.pillsCluster}>
+            <View style={styles.outlinePill}>
+              <Text style={styles.pillText}>{priorityLabel}</Text>
+            </View>
+            {categoryLabel ? (
+              <View style={styles.outlinePill}>
+                <Text style={styles.pillText}>{categoryLabel}</Text>
               </View>
-            ) : (
-              <ScrollView contentContainerStyle={{ gap: 8 }} showsVerticalScrollIndicator={false}>
-                {allResources.map((res) => {
-                  const isLinked = linkedResourceIds.includes(res.id);
-                  return (
-                    <PressableScale
-                      key={res.id}
-                      onPress={() => onToggleLinkResource?.(checklist.id, "checklist", res.id)}
-                      style={{
-                        borderRadius: 12,
-                        borderWidth: 1,
-                        borderColor: isLinked ? colors.primary : colors.border,
-                        backgroundColor: isLinked ? `${colors.primary}08` : (isLight ? Palette.slate50 : Palette.ink850),
-                      }}
-                      contentStyle={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        padding: 10,
-                      }}
-                    >
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
-                        <Feather
-                          name={res.type === "link" ? "link-2" : res.type === "image" ? "image" : "file-text"}
-                          size={14}
-                          color={colors.textMuted}
-                        />
-                        <Text style={{ fontSize: 12, fontWeight: "700", color: colors.text }} numberOfLines={1}>
-                          {res.title}
-                        </Text>
-                      </View>
-                      <Feather
-                        name={isLinked ? "check-circle" : "circle"}
-                        size={16}
-                        color={isLinked ? colors.primary : colors.textMuted}
-                      />
-                    </PressableScale>
-                  );
-                })}
-              </ScrollView>
-            )}
-
-            <PressableScale
-              onPress={() => setShowLinkSelector(false)}
-              style={{
-                backgroundColor: colors.primary,
-                paddingVertical: 10,
-                borderRadius: 12,
-                alignItems: "center",
-                marginTop: 6,
-              }}
-            >
-              <Text style={{ color: Palette.white, fontWeight: "700", fontSize: 13 }}>Done</Text>
-            </PressableScale>
+            ) : null}
+            <View style={styles.outlinePill}>
+              <Text style={styles.pillText}>{workspaceLabel}</Text>
+            </View>
           </View>
+          <Text style={styles.progressText}>{progressPercent}%</Text>
         </View>
-      </Modal>
 
-      {/* Checklist Option Actions Bottom Sheet */}
+        {/* Title */}
+        <Text
+          style={[
+            styles.titleText,
+            isAllCompleted && styles.titleCompleted,
+          ]}
+          numberOfLines={2}
+        >
+          {checklist.title}
+        </Text>
+
+        {/* Schedule / Timing Row */}
+        <View style={styles.timingRow}>
+          <Feather name="clock" size={15} color="rgba(255, 255, 255, 0.9)" />
+          <Text style={styles.timingText}>{timingText}</Text>
+        </View>
+      </PressableScale>
+
+      {/* Overflow / More Options Bottom Sheet */}
       <AnimatedOverlay
         visible={menuVisible}
         onClose={() => setMenuVisible(false)}
@@ -510,41 +205,22 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
       >
         {(close) => (
           <View
-            style={{
-              backgroundColor: colors.card,
-              borderTopLeftRadius: 24,
-              borderTopRightRadius: 24,
-              paddingTop: 16,
-              paddingHorizontal: 20,
-              paddingBottom: Platform.OS === "ios" ? 36 : 24,
-              borderWidth: 1.5,
-              borderColor: colors.border,
-            }}
+            style={[
+              styles.menuSheet,
+              {
+                backgroundColor: colors?.card || (isLight ? Palette.white : Palette.ink850),
+                borderColor: colors?.border || "rgba(255,255,255,0.1)",
+              },
+            ]}
           >
-            {/* Header: Title */}
-            <View
-              style={{
-                alignItems: "center",
-                paddingBottom: 16,
-                borderBottomWidth: 1,
-                borderBottomColor: colors.border + "40",
-                marginBottom: 12,
-              }}
-            >
-              <Text
-                style={{
-                  color: colors.text,
-                  fontSize: 16,
-                  fontWeight: "800",
-                }}
-              >
+            <View style={styles.menuHeader}>
+              <Text style={[styles.menuTitle, { color: colors?.text || Palette.white }]}>
                 {checklist.title}
               </Text>
             </View>
 
-            {/* Menu options list */}
-            <View style={{ gap: 4 }}>
-              {/* Duplicate Checklist */}
+            <View style={styles.menuOptions}>
+              {/* Duplicate */}
               <TouchableOpacity
                 onPress={() => {
                   close();
@@ -552,20 +228,15 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
                 }}
                 accessibilityRole="button"
                 accessibilityLabel={`Duplicate checklist ${checklist.title}`}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  paddingVertical: 14,
-                  gap: 12,
-                }}
+                style={styles.menuRow}
               >
-                <Text style={{ fontSize: 18 }}>📄</Text>
-                <Text style={{ color: colors.text, fontSize: 15, fontWeight: "600" }}>
+                <Feather name="copy" size={18} color={colors?.text || Palette.white} />
+                <Text style={[styles.menuRowText, { color: colors?.text || Palette.white }]}>
                   Duplicate Checklist
                 </Text>
               </TouchableOpacity>
 
-              {/* Archive Checklist */}
+              {/* Archive */}
               <TouchableOpacity
                 onPress={() => {
                   close();
@@ -578,7 +249,7 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
                         {
                           text: "Archive",
                           onPress: () => {
-                            onUpdateChecklist({ ...checklist, archivedAt: Date.now() });
+                            onUpdateChecklist?.({ ...checklist, archivedAt: Date.now() });
                           },
                         },
                       ]
@@ -587,20 +258,15 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
                 }}
                 accessibilityRole="button"
                 accessibilityLabel={`Archive checklist ${checklist.title}`}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  paddingVertical: 14,
-                  gap: 12,
-                }}
+                style={styles.menuRow}
               >
-                <Text style={{ fontSize: 18 }}>📦</Text>
-                <Text style={{ color: colors.text, fontSize: 15, fontWeight: "600" }}>
+                <Feather name="archive" size={18} color={colors?.text || Palette.white} />
+                <Text style={[styles.menuRowText, { color: colors?.text || Palette.white }]}>
                   Archive Checklist
                 </Text>
               </TouchableOpacity>
 
-              {/* Delete Checklist (Destructive) */}
+              {/* Delete */}
               <TouchableOpacity
                 onPress={() => {
                   close();
@@ -623,149 +289,147 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
                 }}
                 accessibilityRole="button"
                 accessibilityLabel={`Delete checklist ${checklist.title}`}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  paddingVertical: 14,
-                  gap: 12,
-                }}
+                style={styles.menuRow}
               >
-                <Text style={{ fontSize: 18 }}>🗑️</Text>
-                <Text style={{ color: colors.error, fontSize: 15, fontWeight: "600" }}>
+                <Feather name="trash-2" size={18} color={colors?.error || "#FF4D4D"} />
+                <Text style={[styles.menuRowText, { color: colors?.error || "#FF4D4D" }]}>
                   Delete Checklist
                 </Text>
               </TouchableOpacity>
             </View>
 
-            {/* Separator before Cancel */}
-            <View style={{ height: 1.5, backgroundColor: colors.border, marginVertical: 12 }} />
+            <View style={[styles.menuDivider, { backgroundColor: colors?.border || "rgba(255,255,255,0.1)" }]} />
 
-            {/* Cancel option */}
             <TouchableOpacity
               onPress={close}
               accessibilityRole="button"
               accessibilityLabel="Cancel"
-              style={{
-                alignItems: "center",
-                justifyContent: "center",
-                paddingVertical: 12,
-                borderRadius: 12,
-                backgroundColor: isLight ? Palette.slate100 : Palette.zinc800,
-              }}
+              style={[
+                styles.cancelButton,
+                { backgroundColor: isLight ? Palette.slate100 : Palette.zinc800 },
+              ]}
             >
-              <Text style={{ color: colors.text, fontSize: 15, fontWeight: "700" }}>Cancel</Text>
+              <Text style={[styles.cancelButtonText, { color: colors?.text || Palette.white }]}>
+                Cancel
+              </Text>
             </TouchableOpacity>
           </View>
         )}
       </AnimatedOverlay>
-    </EntityItem>
+    </>
   );
 };
 
 export const ChecklistItem = ChecklistProgressCard;
 
 const styles = StyleSheet.create({
-  cardCheckbox: {
-    marginTop: 2,
+  cardContainer: {
+    backgroundColor: "#E07A5F",
+    borderRadius: 22,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 3,
   },
-  titlePress: {
-    flex: 1,
-  },
-  title: {
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  actionsCluster: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
-  },
-  moreBtn: {
-    width: 28,
-    height: 36,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  chevronBtn: {
-    width: 28,
-    height: 36,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  progressRowPress: {
-    width: "100%",
-    marginTop: 4,
-  },
-  progressTrack: {
-    height: 3,
-    borderRadius: 1.5,
-    overflow: "hidden",
-    marginBottom: 6,
-  },
-  progressBar: {
-    height: "100%",
-    borderRadius: 1.5,
-  },
-  metricsMetaRow: {
-    marginTop: 2,
-  },
-  progressText: {
-    fontSize: 10.5,
-    fontWeight: "500",
-  },
-  remainingText: {
-    fontSize: 10.5,
-    fontWeight: "600",
-  },
-  previewContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 8,
-    gap: 8,
-  },
-  previewCheckbox: {
-    padding: 2,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  previewTextPress: {
-    flex: 1,
-  },
-  previewText: {
-    fontSize: 13,
-    fontWeight: "500",
-  },
-  expandedContent: {
-    marginTop: 10,
-    paddingBottom: 6,
-    paddingHorizontal: 14,
-  },
-  divider: {
-    height: 1,
-    width: "100%",
-    marginBottom: 10,
-    opacity: 0.5,
-  },
-  checklistItemsWrapper: {
-    paddingLeft: 30,
-    gap: 6,
-    marginBottom: 4,
-  },
-  checkItemRow: {
+  topRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 5,
   },
-  checkItemLeft: {
+  pillsCluster: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    flex: 1,
+    gap: 8,
   },
-  checkItemTitle: {
-    fontSize: 13,
+  outlinePill: {
+    borderWidth: 1.2,
+    borderColor: "rgba(255, 255, 255, 0.7)",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 3.5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pillText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  progressText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  titleText: {
+    color: "#FFFFFF",
+    fontSize: 21,
+    fontWeight: "700",
+    letterSpacing: -0.3,
+    marginTop: 14,
+    marginBottom: 12,
+    lineHeight: 26,
+  },
+  titleCompleted: {
+    textDecorationLine: "line-through",
+    opacity: 0.8,
+  },
+  timingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  timingText: {
+    color: "rgba(255, 255, 255, 0.9)",
+    fontSize: 13.5,
     fontWeight: "500",
-    flex: 1,
+  },
+  menuSheet: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 16,
+    paddingHorizontal: 20,
+    paddingBottom: Platform.OS === "ios" ? 36 : 24,
+    borderWidth: 1,
+  },
+  menuHeader: {
+    alignItems: "center",
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255, 255, 255, 0.1)",
+    marginBottom: 8,
+  },
+  menuTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  menuOptions: {
+    gap: 4,
+  },
+  menuRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    gap: 12,
+  },
+  menuRowText: {
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  menuDivider: {
+    height: 1,
+    marginVertical: 10,
+  },
+  cancelButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  cancelButtonText: {
+    fontSize: 15,
+    fontWeight: "700",
   },
 });

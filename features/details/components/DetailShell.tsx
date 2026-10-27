@@ -10,6 +10,7 @@ export interface DetailShellProps {
   children: React.ReactNode;
   header?: React.ReactNode;
   footer?: React.ReactNode;
+  background?: React.ReactNode;
   contentContainerStyle?: StyleProp<ViewStyle>;
   style?: StyleProp<ViewStyle>;
 }
@@ -26,6 +27,7 @@ export const DetailShell: React.FC<DetailShellProps> = ({
   children,
   header,
   footer,
+  background,
   contentContainerStyle,
   style,
 }) => {
@@ -35,6 +37,7 @@ export const DetailShell: React.FC<DetailShellProps> = ({
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }, style]}>
+      {background}
       {header}
       <ScrollView
         contentInsetAdjustmentBehavior="never"
