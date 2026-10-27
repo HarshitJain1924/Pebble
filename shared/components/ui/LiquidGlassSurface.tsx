@@ -1,62 +1,62 @@
 import React from "react";
-import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
-import { BlurView } from "expo-blur";
+import { type StyleProp, type ViewStyle } from "react-native";
+import { LiquidGlassView } from "react-native-liquid-glassmorphism";
 
 export interface LiquidGlassSurfaceProps {
   children?: React.ReactNode;
   style?: StyleProp<ViewStyle>;
   tintColor?: string;
   intensity?: number;
+  blurRadius?: number;
   interactive?: boolean;
   rim?: boolean;
   specular?: boolean;
   borderRadius?: number;
-  borderWidth?: number;
-  borderColor?: string;
+  thickness?: number;
+  edgeReflectionStrength?: number;
 }
 
 /**
- * Premium Liquid Glass surface powered by Expo Blur.
- * Real-time background refraction blur with directional specular lighting
- * (bright top light catch, soft ambient sides, subtle bottom shadow rim).
+ * Premium Liquid Glass surface powered by `react-native-liquid-glassmorphism`.
+ * Features real-time AGSL refractive-lens optics on Android:
+ * - 'clear' variant preserves deep dark-mode obsidian contrast without washing out into grey.
+ * - Direct `borderRadius` prop drives native Outline + shader SDF corner rounding.
+ * - Tuned lens thickness & edge reflection provide subtle, authentic liquid sheen.
  */
 export const LiquidGlassSurface: React.FC<LiquidGlassSurfaceProps> = ({
   children,
   style,
-  tintColor = "rgba(255, 255, 255, 0.04)",
-  intensity = 35,
+  tintColor = "rgba(255, 255, 255, 0.06)",
+  intensity = 45,
+  blurRadius = 16,
+  interactive = true,
+  rim = true,
+  specular = true,
   borderRadius = 16,
+  thickness = 0.85,
+  edgeReflectionStrength = 0.5,
 }) => {
   return (
-    <View
-      style={[
-        styles.outerContainer,
-        {
-          borderRadius,
-          backgroundColor: tintColor,
-        },
-        style,
-      ]}
+    <LiquidGlassView
+      variant="clear"
+      tintColor={tintColor}
+      intensity={intensity}
+      blurRadius={blurRadius}
+      interactive={interactive}
+      rim={rim}
+      specular={specular}
+      borderRadius={borderRadius}
+      thickness={thickness}
+      edgeReflectionStrength={edgeReflectionStrength}
+      brightness={1.12}
+      legibilityFloor={0.15}
+      refraction={true}
+      style={style}
     >
-      <BlurView
-        intensity={intensity}
-        tint="dark"
-        style={StyleSheet.absoluteFill}
-      />
       {children}
-    </View>
+    </LiquidGlassView>
   );
 };
 
-const styles = StyleSheet.create({
-  outerContainer: {
-    overflow: "hidden",
-    borderWidth: 1,
-    borderTopColor: "rgba(255, 255, 255, 0.22)",
-    borderLeftColor: "rgba(255, 255, 255, 0.10)",
-    borderRightColor: "rgba(255, 255, 255, 0.08)",
-    borderBottomColor: "rgba(255, 255, 255, 0.05)",
-  },
-});
 
 
